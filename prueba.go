@@ -17,6 +17,7 @@ func main() {
 	forSample()
 	pruebaStruct()
 	pruebaMaps()
+	pruebaSlices()
 }
 
 //Las funciones pueden ir en cualquier lugar, no hace falta ponerlas antes
@@ -128,7 +129,7 @@ func pruebaMaps(){
 	type vertice struct {
 		X int
 		Y int
-	}
+		}
 
 	//declaramos la variable del tipo map
 	var coordenadas map[string]vertice //crea un variable map llamada "coordenadas" donde las keys son strings y los values son del tipo vertice
@@ -160,6 +161,54 @@ func pruebaMaps(){
 
 	fmt.Println("mapa literal: ",mapa)
 
+	//modificar algo en el mapa es como simpre
+	mapa["cero"] = vertice{2,3} //al parecer no hay que poner new ... raro, pensé que había que crear el objeto, 
+	mapa["fer"] = *new(vertice) //al parecer así funciona, pone un puntero al elemento en el mapa
+	element := mapa["cero"]     //así se busca un elemento
+	fmt.Println("elemento: ",element)	 //se imprime lo más bien
+	fmt.Println("elemento: ",mapa["fer"])	 //veo que se imprime el vacío que lo cree con el puntero
+	delete(mapa,"cero")			 //borra un elemento del array
+
+	//esto es loco, si pongo dos variables a la primera le 
+	//asigna el elemento a la segundo true o false si está o no
+	element,ok := mapa["uno"]		 
+	fmt.Println("El valor :",element, "Presente: ",ok) //imprimo si está o no, debería
+	element,ok = mapa["cero"]	//notese que no es := sinó = solo porque ya las declaré		 
+	fmt.Println("El valor :",mapa["cero"], "Presente: ",ok) //debería poner false
+
+}
+
+func pruebaSlices(){
+
+	//un slice apunta a un array de valores y también incluye un tamaño
+	//[]T es un slice del tipo de elemento T
+	s := []int{1,2,3,4,5,6}
+	fmt.Println("slice: ",s)
+	
+	//imprimo el slice, uso el tamaño
+	for i:=0;i<len(s);i++ {
+		fmt.Println("Elemento: ",i,s[i])
+	}
+
+	//un slice puede ser recreado, para hacer esto hay que accederlo con slice[x:y], devuelve el rango X a Y-1
+	fmt.Println("Slice: [1-4]: ",s[1:4])
+	//si no se pone el inicio o el fin toma los límites
+	fmt.Println("Slice: [:-4]: ",s[:4])
+	fmt.Println("Slice: [1-:]: ",s[1:])
+	
+	//para crear un slice se puede usar el make, ahi se le puede definir el tamaño y la capacidad
+	s2 := make([]int, 5)	//crea un slice de tamaño 5, pero con capacidad 5
+	fmt.Println("tamaño: ",len(s2)," capacidad: ",cap(s2)," valores: ", s2)
+	s3 := make([]int,3,4)	//crea un slice con tamaño 3 pero con capacidad 4
+	fmt.Println("tamaño: ",len(s3)," capacidad: ",cap(s3)," valores: ", s3)
+	//este último puso 3 elementos en el array, no entiendo entonces que es la capacidad, voy a probar de poner un elemento en [3]
+	//s3[3] = 1	
+	//no funcionó con lo cual no entiendo para que es la capacidad
+	var z []int
+	fmt.Println("tamaño: ",len(z)," capacidad: ",cap(z)," valores: ", z)
+	if z == nil {
+		fmt.Println("es nil!")
+	}	
 }
 
 /* 
