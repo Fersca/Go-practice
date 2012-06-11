@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"math"
+	"time"
 )
 
 //Solo se puede acceder a las cosas que exporta el package, y eso es lo que está en mayúsculas
@@ -18,6 +19,10 @@ func main() {
 	pruebaStruct()
 	pruebaMaps()
 	pruebaSlices()
+	functions()
+	ranges()
+	pruebaSwitch()
+	methods()
 }
 
 //Las funciones pueden ir en cualquier lugar, no hace falta ponerlas antes
@@ -209,6 +214,122 @@ func pruebaSlices(){
 	if z == nil {
 		fmt.Println("es nil!")
 	}	
+
+	//pasa saber más de slides ver este link: http://golang.org/doc/articles/slices_usage_and_internals.html
+	//estaría bueno ver que diferencia exactamente hay entre length y capacity
+}
+
+func functions(){
+
+	//las funciones puede definirse como valores:
+	hipotenusa:= func(x,y float64) float64 {
+			return math.Sqrt(x*x + y*y)
+			}
+	
+	fmt.Println(hipotenusa(3,4))
+
+	//al parecer se puede devolver una funcion desde una función... muy bueno, y obvio ya que es como un valor:
+	
+	//ver la función adder() declarada después de esta función.
+	
+	//se crean dos variables del tipo adder() entonces lo que contienen es una función
+	pos, neg := adder(), adder()
+	
+	//las puedo usar después
+	for i:=0;i<10;i++ {
+		fmt.Println(pos(i))			
+		fmt.Println(neg(-2*i))			
+	}
+
+	//como se puede ver después de ejecutar el ejemplo, cada función creada mantiene su propia variable interna.
+}
+
+//la función adder devuelve una función
+func adder() func(int) int {
+	sum :=0
+	return func(x int) int {
+		sum +=x
+		return sum
+	}
+}
+
+func ranges(){
+	
+	//un range sirve para iterar sobre un slice o un map
+	
+	numeros := []int{1,2,3,4,5,6,7,8}
+
+	//imprime primero la posicion y luego el elemento en esa posicion, está bueno.
+	for i, v:= range numeros {
+		fmt.Println("Numero: ",i,v)
+	}
+	
+	//no hace falta usar key y value, solo se puede usar key, pero para usar value hay que poner _
+	otros := make([]int,10)
+	
+	//así se usa solo el i
+	for i:= range otros {
+		otros[i] = i*2
+	}
+
+	//así se usa solo el v
+	for _,v:=range otros {
+		fmt.Println("Numero: ",v)
+	}
+}
+
+func pruebaSwitch(){
+
+	//el switch es como siempre
+
+	today := time.Now().Weekday()
+
+	//cuando encuentra una que machea, corta salvo que se ponga fallthrough al final
+	switch time.Saturday {
+
+		case today+0:
+			fmt.Println("Hoy")
+		case today+1:
+			fmt.Println("Mañana")
+		case today+2:
+			fmt.Println("Pasado Mañana")
+		default:
+			fmt.Println("Falta mucho")
+	}
+
+	//se pueden poner switch sin condiciones, es lo mismo que poner switch true, es una manera mas limpia de hacer muchos if-else
+
+	t := time.Now()
+	switch {
+		case t.Hour() < 12:
+		    fmt.Println("Buenos días!")
+		case t.Hour() < 17:
+		    fmt.Println("buenas tardes.")
+		default:
+		    fmt.Println("buenas noches.")
+	}
+}
+
+func methods(){
+	//go no tiene clases pero se pueden definir metodos en los structs
+
+	//para crear un método lo que se hace es crear una struct y después atachar a esa struct un metodo, así:
+	
+	//Ver abajo de esto la creación del struct y el agregado del método
+
+	//se crea un vertex y se llama a su método
+	v := &Vertex{3, 4}
+	fmt.Println(v.Abs())
+}
+
+//se crea la struct
+type Vertex struct {
+	X,Y float64
+}
+
+//se crea la función Abs() y antes del nombre se le pone el receptor de la función "vertex"
+func (v *Vertex) Abs() float64{
+	return math.Sqrt(v.X*v.X + v.Y*v.Y)
 }
 
 /* 
