@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"math"
 	"time"
+	"os"
+	"net/http"
+	"image"
 )
 
 //Solo se puede acceder a las cosas que exporta el package, y eso es lo que está en mayúsculas
@@ -23,6 +26,10 @@ func main() {
 	ranges()
 	pruebaSwitch()
 	methods()
+	interfaces()
+	errores()
+	imagenes()
+	webservers()
 }
 
 //Las funciones pueden ir en cualquier lugar, no hace falta ponerlas antes
@@ -320,6 +327,25 @@ func methods(){
 	//se crea un vertex y se llama a su método
 	v := &Vertex{3, 4}
 	fmt.Println(v.Abs())
+
+	//de hecho se puede agregar un método a todo lo que esté definido en el package, no solo a los structs
+	//este es un ejemplo donde una variable tiene un método.
+	f:= MyFloat(-math.Sqrt(2))
+	fmt.Println("numero: ",f.Abs())
+	//entonces se define un type del tipo float y se le pone un método.
+
+	//como pudo verse, un método recibió un puntero y otro un valor, ambos funcionan pero como siempre
+	//el del puntero modifica otra estructura, no una copia de lo que le pasaron.
+}
+
+type MyFloat float64
+
+func (a MyFloat) Abs() float64{
+	//como se puede ver, el parámetro se puede usar dentro
+	if a<0 {
+		return float64(-a)
+	} 
+	return float64(a)
 }
 
 //se crea la struct
@@ -327,11 +353,131 @@ type Vertex struct {
 	X,Y float64
 }
 
+
 //se crea la función Abs() y antes del nombre se le pone el receptor de la función "vertex"
 func (v *Vertex) Abs() float64{
 	return math.Sqrt(v.X*v.X + v.Y*v.Y)
 }
 
+func interfaces(){
+	//las interfaces son lo mismo que en otro lenguaje, un contrato que dice que se van a implementar una serie de métodos
+	//entonces si se crea una variable de ese tipo de interface, se sabe que todo lo que se le asigne implementa esos métodos.
+	
+	//definimos una interface afuera "Abser"
+	//se crea una variable del tipo Abser, con lo cual tiene el metodo Abs()
+	var a Abser
+	
+	f:= MyFloat(3)
+	v:= Vertex{3,4}
+	a = &v //funciona porque hay un método Abs() que recibe un *Vertex
+	a = f //funciona porque MyFloat tiene un método que es Abs()
+	//a = v //Vertex solo no implementa un metodo Abs() que reviva un v
+
+	/*
+	Devuelve esto:
+	cannot use v (type Vertex) as type Abser in assignment:
+	Vertex does not implement Abser (Abs method requires pointer receiver)
+	*/
+
+	fmt.Println(a.Abs())
+
+	//Lo interesante es que una interface se puede definir como que implementa otras interfaces
+	//por ejemplo, vea lo siguiente.
+	var w Writer //se crea una variable del tipo writer que es una interface
+
+	// os.Stdout implementa Writer
+	w = os.Stdout
+
+	fmt.Fprintf(w, "hello, writer\n")	
+}
+
+//se crea la interface
+type Abser interface{
+	Abs() float64
+}
+
+type Writer interface{
+	Write(b []byte) (n int, err error)
+}
+
+func errores(){
+
+	//al parecer un error es una interface que define el método Error() que devuelve un string
+	//entonces hay muchos packages que sabiendo esto, esperan ejecutar el metodo Error()
+
+	r:=run() //se crea una variable r la cual es un error. Entonces apunta a una estructura que implementa Error()
+	//Si se llama a primeln va a imprimir el error porque sabe que es un error
+	fmt.Println(r) 
+	//lo que quiero explicar es que printLn cuando recibe una estructura que implementa error, se da cuenta de que se 
+	//quiere imprimir un error entonces ejecuta el metodo Error() de la misma.
+
+}
+
+//Esta es la estructura
+type MyError struct {
+	When time.Time
+	What string
+}
+
+//tiene el método de error (con lo cual implementa error):
+func (e *MyError) Error() string {
+	return fmt.Sprintf("Fer at %v, %s",
+		e.When, e.What)
+}
+
+//Esta es la función pedorra que crea el objeto MyError.
+func run() error {
+	return &MyError{
+		time.Now(),
+		"it didn't work",
+	}
+}
+
+func webservers(){
+	//el package de HTTP maneja pedidos https usando cualquier value que implemente Handler.
+
+	//por ejemplo, creamos una struct vacía y le agregamos una función llamada ServeHTTP
+	//después se la podemos pasar como handler al http server, porque la misma implementa los metodos de un handler
+	var h Hello
+	http.ListenAndServe("localhost:4000",h)
+	//como puede verse levanta un webserver y responde con h, que es el handler llamado Hello.
+
+	//La interface es así:
+	/*
+	type Handler interface {
+		ServeHTTP(w ResponseWriter,
+			  r *Request)
+	}
+	*/
+
+}
+
+
+type Hello struct{}
+func (h Hello) ServeHTTP(w http.ResponseWriter,r *http.Request) {
+	fmt.Println("Request recibido")
+	fmt.Fprint(w, "Hello!")
+}
+
+func imagenes(){
+	
+	/*
+
+	La interface de la imagen es así:
+	type Image interface {
+		ColorModel() color.Model
+		Bounds() Rectangle
+		At(x, y int) color.Color
+	}
+
+	O sea, tiene un método que devuelve el modelo de color, otro que devuelve el color en una posicion x,y y otro que dice los bordes
+	*/
+
+	m := image.NewRGBA(image.Rect(0, 0, 100, 100)) //Se crea una imagen
+	fmt.Println(m.Bounds())	//se le pide los bordes
+	fmt.Println(m.At(0, 0).RGBA()) //se imprime el clor en la posicion 0,0, a su vez, se ejecuta el método RGBA de ese color.
+
+}
 /* 
 NOTAS:
 ------
