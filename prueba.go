@@ -7,6 +7,7 @@ import (
 	"os"
 	"net/http"
 	"image"
+	"runtime"
 )
 
 //Solo se puede acceder a las cosas que exporta el package, y eso es lo que está en mayúsculas
@@ -29,7 +30,9 @@ func main() {
 	interfaces()
 	errores()
 	imagenes()
-	webservers()
+	//webservers()
+	goroutines()
+	channels()
 }
 
 //Las funciones pueden ir en cualquier lugar, no hace falta ponerlas antes
@@ -477,6 +480,105 @@ func imagenes(){
 	fmt.Println(m.Bounds())	//se le pide los bordes
 	fmt.Println(m.At(0, 0).RGBA()) //se imprime el clor en la posicion 0,0, a su vez, se ejecuta el método RGBA de ese color.
 
+}
+
+func goroutines(){
+
+	//cuando se pone delante la palabra "go" la función que se ejecuta después se ejecuta en un gorutine
+	go say("hola en gorutine 0")
+	go say("hola en gorutine 1")
+	go say("hola en gorutine 2")
+	go say("hola en gorutine 3")
+	say("hola")
+
+}
+
+func say(s string){
+	for i:=0; i<5; i++{		
+		runtime.Gosched()
+		time.Sleep(time.Second*1)
+		fmt.Println(s)
+	}
+}
+
+
+func channels(){
+
+	//los channels son conductos en donde se envía y obtiene información.
+	//se tienen que crear con make
+	//y se envía información con la flecha chan c int, c <- 5, y se obtiene así a int, a <- c
+	//por default el envío y recepción de información se bloquea hasta que la otra parte esté lista, esto permite sincronizar.
+	c := make(chan int) //crea un canal de ints
+	go suma(2,3,c)
+	go suma2(4,5,c)
+	x := <- c 
+	fmt.Println("termina 1")	
+	y := <- c 
+	fmt.Println("termina 2")	
+	fmt.Println("result: ",x+y) 
+	//queda claro en este ejemplo que se bloquea cuando quiere recibir y aun no hay datos en "c"
+
+	//ahora voy a tratar de poner dos datos al mismo tiempo en el channel y ver si realmente se bloquea al poner
+	go suma3(4,5,c) //agrega e imprime cuando agrega
+	go suma4(6,7,c)	//agrega e imprime cuando agrega, pero no debería poder porque ya hay un dato en el channel
+	time.Sleep(time.Second*1)
+	x = <- c
+	time.Sleep(time.Second*1)
+	x = <- c
+	time.Sleep(time.Second*1)
+	fmt.Println("fin")	
+	//realmente se bloquean al poner datos en "c", porque el "poniendo x" lo imprime luego de que saco datos del channel
+
+	//se puede hacer tambien un channel con un buffer, entonces solo se bloquea si se llena el buffer o si queda vacío, ta bueno, a probarlo....
+	c2 := make(chan int,3) //crea un canal de ints con 3 valores de buffer	
+	go suma3(4,5,c2) 
+	go suma4(6,7,c2) 
+	go suma3(4,5,c2) 
+	go suma4(6,7,c2) //debería bloquearse acá.....
+	time.Sleep(time.Second*2) //espero 2 segundos.
+	x = <- c2 //saco un dato del channel, con lo cual el último gorutine debería poder poner datos
+	fmt.Println("fin buffer")
+	// :D excelente, funcionó perfecto!	
+	
+	//un channel se puede cerrar, lo tiene que hacer el sender, al cerrarlo se le dice que no se van a recibir más datos.
+	//esto sirve porque se puede hacer un loop sobre un channel y el loop se queda esperando pero si se cierra el channel termina.
+	c3 := make(chan int,100)
+	go meteDatos(c3)
+	for i:= range c3 {
+		fmt.Println("Datos: ",i)
+	}
+	fmt.Println("fin cerrando channel")
+	//anduvo perfecto!!! cuando se cierra el channel termina el range.
+	
+}
+
+func suma(a int, b int, c chan int){
+	result := a+b
+	time.Sleep(time.Second*1)
+	c <- result
+}
+func suma2(a int, b int, c chan int){
+	result := a+b
+	time.Sleep(time.Second*2)
+	c <- result
+}
+func suma3(a int, b int, c chan int){
+	result := a+b
+	c <- result
+	fmt.Println("Poniendo 3")	
+}
+func suma4(a int, b int, c chan int){
+	result := a+b
+	c <- result
+	fmt.Println("Poniendo 4")	
+}
+
+func meteDatos(c chan int){
+	for i:=0;i<5;i++{
+		c <- i
+		time.Sleep(time.Second*1)
+	}
+	close(c) //acá se cierra el canal, entonces el range termina.
 }
 /* 
 NOTAS:
