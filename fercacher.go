@@ -1,9 +1,14 @@
+// Copyright 2012 Fernando Scasserra twitter: @fersca. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package main
 
 import (
 	"fmt"
 	"container/list"
 	"net/http"
+	"runtime"
 )
 
 //Create the list to support the LRU List
@@ -12,15 +17,37 @@ var lista list.List
 //Create the map to store the key-elements
 var mapa map[string]*list.Element
 
+//Channes to sync the List and map modifications
+var lisChan chan int
+var mapChan chan int
+
+//Print information
+const enablePrint bool = false 
+
 /*
  * Init the system variables
  */
 func init(){
+
+	//Welcome Message
+	fmt.Println("Starting Fercacher HTTP Key-Value Server")
+
+	//Set the thread quantity based on the number of CPU's
+	coreNum := runtime.NumCPU()
+	fmt.Println("Core numbers: ",coreNum)
+	runtime.GOMAXPROCS(coreNum)
+
 	//Create a new doble-linked list to act as LRU
 	lista  = *list.New()
 
 	//Create a new Map to search for elements
 	mapa = make(map[string]*list.Element)
+
+	//Create the channels
+	lisChan = make(chan int,1)
+	mapChan = make(chan int,1)
+
+	fmt.Println("Ready.")
 }
 
 /*
@@ -28,15 +55,13 @@ func init(){
  */
 func main() {
 	
-	//Process the http commands
-	fmt.Println("Starting Fercacher HTTP Key-Value Server ... ")
-
 	//Create the webserver
 	http.Handle("/", http.HandlerFunc(processRequest))
 	err := http.ListenAndServe("0.0.0.0:8080", nil)
 	if err != nil {
-		fmt.Printf("ListenAndServe Error",err)
+		fmt.Printf("Fercacher ListenAndServe Error",err)
 	}
+
 }
 
 /*
@@ -47,13 +72,9 @@ func processRequest(w http.ResponseWriter, req *http.Request){
 	headerMap := w.Header()
 	//Add the new headers
 	headerMap.Add("System","Fercacher 1.0")
+	//PrintInformation
+	printRequest(req)
 
-	//Print request information
-	fmt.Println("-------------------")
-	fmt.Println("Method: ",req.Method)
-	fmt.Println("URL: ",req.URL)
-	fmt.Println("Headers: ",req.Header)
-	
 	//Performs action based on the request Method
 	switch req.Method {
 
@@ -97,11 +118,25 @@ func processRequest(w http.ResponseWriter, req *http.Request){
 			}
 
 		default:
-			fmt.Println("Not Supported: ", req.Method)
+			if enablePrint {fmt.Println("Not Supported: ", req.Method)}
 			 //Method Not Allowed
 			w.WriteHeader(405)
 	}
 
+}
+
+/*
+ * Print the request information 
+ */
+func printRequest(req *http.Request){
+
+	//Print request information
+	if enablePrint {
+		fmt.Println("-------------------")
+		fmt.Println("Method: ",req.Method)
+		fmt.Println("URL: ",req.URL)
+		fmt.Println("Headers: ",req.Header)
+	}
 }
 
 /*
@@ -110,10 +145,14 @@ func processRequest(w http.ResponseWriter, req *http.Request){
 func createElement(clave string, valor string){
 
 	//Add the value to the list and get a pointer to the node	
+	lisChan <- 1 
 	elemento := lista.PushFront(valor)
+	<- lisChan	
 
+	mapChan <- 1 
 	//Save the node in the map
 	mapa[clave] = elemento
+	<- mapChan
 
 }
 
@@ -130,8 +169,14 @@ func getElement(clave string) *list.Element {
 		return nil
 	} 
 
-	//Move the element to the front of the LRU-List
-	lista.MoveToFront(elemento)
+	//Move the element to the front of the LRU-List using a goru
+	go func(){
+		//Move the element
+		lisChan <- 1 
+		lista.MoveToFront(elemento)
+		<- lisChan
+		if enablePrint {fmt.Println("LRU Updated")}
+	}()
 
 	//Return the element
 	return elemento
@@ -151,11 +196,22 @@ func deleteElement(clave string) bool {
 		return false
 	} 
 
-	//Delete the element in the LRU List
-	lista.Remove(elemento)
+	//Remove the element from cache and list in a separated gorutine
+	go func(){
+		
+		//Delete the element in the LRU List 
+		lisChan <- 1 
+		lista.Remove(elemento)
+		<- lisChan 
 
-	//Delete the key in the map
-	delete(mapa, clave)
+		//Delete the key in the map
+		mapChan <- 1
+		delete(mapa, clave)
+		<- mapChan	
+
+		//Print message
+		if enablePrint {fmt.Println("Delete successfull: ",clave)}
+	}()
 
 	return true
 
