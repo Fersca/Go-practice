@@ -549,7 +549,47 @@ func channels(){
 	}
 	fmt.Println("fin cerrando channel")
 	//anduvo perfecto!!! cuando se cierra el channel termina el range.
+
+	//muy loco el tema de los selects, se usan para cuando una gorutine, tiene que esperar sobre multiples comunicaciones
+	//o sea múltiples channels, cosa que no se podría hacer sin el select ya que quedaría el código bloqueado con escuchar 1 solo channel :)
+
+	//Para probar esto, voy a hacer una función que escuche a tres channels y que haga algo según cual envíe datos
+
+	c4 := make(chan int)
+	c5 := make(chan int)
+	c6 := make(chan int)
+
+	//llamo a la función en una gorutine
+	go listenChannels(c4,c5,c6)
+	time.Sleep(time.Second*1)
+	c4 <- 1
+	time.Sleep(time.Second*1)
+	c5 <- 2
+	time.Sleep(time.Second*1)		
+	c6 <- 3
+	time.Sleep(time.Second*1)		
+	fmt.Println("Listo")
+	//anda perfecto esto, se queda escuchando en los channels y cuando uno actua hace algo, con el dedault se puede poner que haga otra cosa.
+}
+
+func listenChannels(c1,c2,c3 chan int){
 	
+	//loop infinito
+	for {
+		select {
+			case x := <-c1:
+				fmt.Println("channel 1: ",x)
+			case x := <-c2:
+				fmt.Println("channel 2: ",x)
+			case x := <-c3:
+				fmt.Println("channel 3: ",x)
+				return
+			default:
+				time.Sleep(200 * time.Millisecond)
+				fmt.Println("Waiting...")
+		}
+	}	
+
 }
 
 func suma(a int, b int, c chan int){
