@@ -1,6 +1,16 @@
-// Copyright 2012 Fernando Scasserra twitter: @fersca. All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
+/* Copyright 2012 Fernando Scasserra twitter: @fersca. All rights reserved.
+ *
+ * Fercacher is a HTTP cache system that performs in constant time.
+ * It keeps a MAP to store the object internally, and a Double Linked list to purge the LRU elements.
+ * 
+ * To Store element, do a PUT/POST call to: /element_ID and the body of the message will be stored.
+ * To get an element do a GET /element_ID, you will receive the previous stored message.
+ * To delete a key do a DELETE /element_ID.
+ *
+ * LRU updates are done in backgrounds gorutines.
+ * LRU and MAP modifications are performed through channels in order to keep them synchronized.
+ * Bytes stored are counted in order to limit the amount of memory used by the application.
+ */
 
 package main
 
@@ -17,17 +27,16 @@ var lista list.List
 //Create the map to store the key-elements
 var mapa map[string]*list.Element
 
-//Max byte in memory
-const maxMemBytes int64 = 1000
+//Max byte in memory (Key + Data), today set to 100KB
+const maxMemBytes int64 = 1048576
 var memBytes int64 = 0
 
-//Channes to sync the List, map and memoryCounter
+//Channes to sync the List, map
 var lisChan chan int
 var mapChan chan int
-var memCounter chan int
 
 //Print information
-const enablePrint bool = false 
+const enablePrint bool = true
 
 //Struct to hold the value and the key in the LRU
 type node struct {
@@ -57,7 +66,6 @@ func init(){
 	//Create the channels
 	lisChan = make(chan int,1)
 	mapChan = make(chan int,1)
-	memCounter = make(chan int,1)
 
 	fmt.Println("Ready.")
 }
@@ -168,57 +176,79 @@ func createElement(clave string, valor string){
 		elemento = lista.PushFront(n)
 		<- lisChan	
 
-		mapChan <- 1 
 		//Save the node in the map
+		mapChan <- 1 
 		mapa[clave] = elemento
 		<- mapChan
 
-		go increaseMemBytes(len(clave)+len(valor))
+		//Increase the memory counter in a diffetet gorutine
+		go func(){
+			//Increments the memory counter (Key + Value in LRU, + Key in MAP)
+			memBytes += int64((len(clave)*2)+len(valor))
+
+			if enablePrint {fmt.Println("Inc Bytes: ",memBytes)}
+
+			//Purge de LRU
+			purgeLRU()
+		}()
 		
-	} else {
+	} else {		
 
-		//Update the element
-		n := elemento.Value.(node)
-		n.V = valor
-		fmt.Println("Hacer el update al elemento")
+		//Store the previous bytes
+		var prevBytes int = len(elemento.Value.(node).V)
+
+		//Update the element, creating a new node (I dont't know how to update only the node value)
+		elemento.Value = node{clave, valor}
+
+		//Move the element to the front of the LRU
+		go moveFront(elemento)
+
+		//Remove the element from the list in a separated gorutine
+		go func(){
+			//Update the Bytes counter
+			memBytes = memBytes - int64(prevBytes) + int64(len(valor))
+
+			if enablePrint {fmt.Println("Upd Bytes: ",memBytes)}
+
+			//Purge LRU
+			purgeLRU()
+		}()		
 	
 	}
 
 }
 
 /*
- * Increments the memory counter
- */ 
-func increaseMemBytes(value int){
-	
-	//Increments the memory counter
-	memCounter <- 1 
-	memBytes = memBytes + int64(value)
-	fmt.Println("Bytes: ",memBytes)
-	<- memCounter
-
-	//Checks the memory limit
-	if memBytes>maxMemBytes {
-		go cleanLRU()
-	}
-
-}
-
-/*
- * Remove the last element of the LRU un order to clean the memory
+ * Purge the LRU List deleting the last element
  */
+func purgeLRU(){
 
-func cleanLRU(){
+	//Checks the memory limit and decrease it if it's necessary
+	for memBytes>maxMemBytes {
 
-	lisChan <- 1 
-	lastElement := lista.Back()
-	//me di cuenta de que tiene que tener la key guardada así se puede eliminar después del hash map
-	//lista.MoveToFront(elemento)
-	fmt.Println(lastElement)
-	<- lisChan
+		//Get the last element to remove it. Sync is not needed because nothing 
+		//happens if the element is moved in the middle of this rutine, at last it will be removed
+		lastElement := lista.Back()
+		
+		//Delete the element from the map
+		var key string = lastElement.Value.(node).K		
+		var removeBytes int = len(lastElement.Value.(node).V)+(len(key)*2)
+		
+		mapChan <- 1
+		delete(mapa, key)		
+		<- mapChan
+	
+		//Delete the element from the LRU
+		lisChan <- 1 
+		lista.Remove(lastElement)		
+		<- lisChan
+
+		memBytes -= int64(removeBytes)
+
+		if enablePrint {fmt.Println("Purge Done: ",memBytes)}
+	}
 
 }
-
 
 /*
  * Get the element from the Map and push the element to the first position of the LRU-List 
@@ -234,17 +264,22 @@ func getElement(clave string) *list.Element {
 	} 
 
 	//Move the element to the front of the LRU-List using a goru
-	go func(){
-		//Move the element
-		lisChan <- 1 
-		lista.MoveToFront(elemento)
-		<- lisChan
-		if enablePrint {fmt.Println("LRU Updated")}
-	}()
+	go moveFront(elemento)
 
 	//Return the element
 	return elemento
 
+}
+
+/*
+ * Move the element to the front of the LRU, because it was readed or updated
+ */
+func moveFront(elemento *list.Element){
+	//Move the element
+	lisChan <- 1 
+	lista.MoveToFront(elemento)
+	<- lisChan
+	if enablePrint {fmt.Println("LRU Updated")}
 }
 
 /*
@@ -260,7 +295,12 @@ func deleteElement(clave string) bool {
 		return false
 	} 
 
-	//Remove the element from cache and list in a separated gorutine
+	//Delete the key in the map
+	mapChan <- 1
+	delete(mapa, clave)
+	<- mapChan	
+
+	//Remove the element from the list in a separated gorutine
 	go func(){
 		
 		//Delete the element in the LRU List 
@@ -268,13 +308,14 @@ func deleteElement(clave string) bool {
 		lista.Remove(elemento)
 		<- lisChan 
 
-		//Delete the key in the map
-		mapChan <- 1
-		delete(mapa, clave)
-		<- mapChan	
+		//Decrement the byte counter, decrease the Key * 2 + Value
+		var n node = elemento.Value.(node)
+		memBytes -= int64((len(n.K)*2)+len(n.V))
+
+		if enablePrint {fmt.Println("Dec Bytes: ",memBytes)}
 
 		//Print message
-		if enablePrint {fmt.Println("Delete successfull: ",clave)}
+		if enablePrint {fmt.Println("Delete successfull, ID: ",clave)}
 	}()
 
 	return true
