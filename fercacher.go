@@ -19,6 +19,7 @@ import (
 	"container/list"
 	"net/http"
 	"runtime"
+	"encoding/json"
 )
 
 //Create the list to support the LRU List
@@ -36,12 +37,12 @@ var lisChan chan int
 var mapChan chan int
 
 //Print information
-const enablePrint bool = true
+const enablePrint bool = false
 
 //Struct to hold the value and the key in the LRU
 type node struct {
 	K string
-	V string
+	V map[string]interface{}
 }
 
 /*
@@ -99,15 +100,42 @@ func processRequest(w http.ResponseWriter, req *http.Request){
 	switch req.Method {
 
 		case "GET":
+
+			if req.URL.Path[1:]=="search" {
+				key := req.FormValue("key")
+				value := req.FormValue("value")
+				result := search(key, value)
+				b, err := json.Marshal(result)				
+				if err!=nil {				
+					fmt.Println(b)
+				}
+				w.Write([]byte(b))
+				return
+			} 
+			if req.URL.Path[1:]=="elements" {
+				b, err := json.Marshal(len(mapa))				
+				if err!=nil {				
+					fmt.Println(b)
+				}
+				w.Write([]byte(b))
+				return
+			} 
+
 			//Get the vale from the cache
 			element := getElement(req.URL.Path[1:])
-			
+		
 			if element==nil {
 				//Return a not-found				
 				w.WriteHeader(404)
 			} else {
 				//Write the response to the client
-				w.Write([]byte(element.Value.(node).V))				
+				b, err := json.Marshal(element.Value.(node).V)
+				if err!=nil {
+					if enablePrint {fmt.Println("Error geting Key: ",req.URL.Path[1:],err)}
+					w.WriteHeader(404)
+				} else {
+					w.Write([]byte(b))
+				}			
 			}
 
 		case "PUT":
@@ -146,6 +174,26 @@ func processRequest(w http.ResponseWriter, req *http.Request){
 }
 
 /*
+ * Search the jsons that has the key with the specified value
+ */
+func search(key string, value string) []interface{} {
+
+	arr := make([]interface{},0)	
+		
+	//Search the Map for the value
+	for _, v := range mapa {
+		//TODO: This is absolutely un-efficient, we are creating a new array for each iteration. Fix this.
+		//Is this possible to have something like java ArrayLists  ?
+		nod := v.Value.(node)
+		if nod.V[key]==value {
+			arr = append(arr,nod)
+		}
+	}
+
+	return arr
+}
+
+/*
  * Print the request information 
  */
 func printRequest(req *http.Request){
@@ -164,13 +212,24 @@ func printRequest(req *http.Request){
  */
 func createElement(clave string, valor string){
 
+	b := []byte(valor)
+	var f interface{}
+	err := json.Unmarshal(b, &f)
+
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	} 
+	
+	m := f.(map[string]interface{})
+
 	var elemento *list.Element
 	elemento = mapa[clave]
 
 	if elemento == nil {
 
 		//Add the value to the list and get a pointer to the node	
-		n := node{clave, valor}
+		n := node{clave, m}
 	
 		lisChan <- 1 
 		elemento = lista.PushFront(n)
@@ -184,7 +243,7 @@ func createElement(clave string, valor string){
 		//Increase the memory counter in a diffetet gorutine
 		go func(){
 			//Increments the memory counter (Key + Value in LRU, + Key in MAP)
-			memBytes += int64((len(clave)*2)+len(valor))
+			memBytes += int64((len(clave)*2)+len(m))
 
 			if enablePrint {fmt.Println("Inc Bytes: ",memBytes)}
 
@@ -198,7 +257,7 @@ func createElement(clave string, valor string){
 		var prevBytes int = len(elemento.Value.(node).V)
 
 		//Update the element, creating a new node (I dont't know how to update only the node value)
-		elemento.Value = node{clave, valor}
+		elemento.Value = node{clave, m}
 
 		//Move the element to the front of the LRU
 		go moveFront(elemento)
@@ -206,7 +265,7 @@ func createElement(clave string, valor string){
 		//Remove the element from the list in a separated gorutine
 		go func(){
 			//Update the Bytes counter
-			memBytes = memBytes - int64(prevBytes) + int64(len(valor))
+			memBytes = memBytes - int64(prevBytes) + int64(len(m))
 
 			if enablePrint {fmt.Println("Upd Bytes: ",memBytes)}
 
