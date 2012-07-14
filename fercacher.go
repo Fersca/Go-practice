@@ -33,9 +33,10 @@ var lista list.List
 var mapa map[string]*list.Element
 
 //Max byte in memory (Key + Data), today set to 100KB
-const maxMemBytes int64 = 1048576
+const maxMemBytes int64 = 51550//1048576
 var memBytes int64 = 0
 var sequence int = 0
+const pointerLen int = 4+8 //Bytes of pointer in 32bits machines plus int64 for the key of element in hashmemBytes
 
 //Channes to sync the List, map
 var lisChan chan int
@@ -49,7 +50,6 @@ const enablePrint bool = false
 
 //Struct to hold the value and the key in the LRU
 type node struct {
-	K string
 	V map[string]interface{}
 }
 
@@ -156,14 +156,14 @@ func handleHttpConnection(conn net.Conn){
 				return		
 			}
 
- 			if commandStr[0:4] == "get2" {
+ 			if commandStr[0:3] == "get" {
 			
 				comandos := strings.Split(commandStr[:cant-2]," ")
 
 				fmt.Println("Collection: ",comandos[1], " - ",len(comandos[1]))				
 				fmt.Println("Id: ",comandos[2]," - ",len(comandos[2]))
 	
-				b,err := getElement2(comandos[1],comandos[2])
+				b,err := getElement(comandos[1],comandos[2])
 				
 				if b!=nil {
 					conn.Write(b)
@@ -178,32 +178,14 @@ func handleHttpConnection(conn net.Conn){
 				continue
 			}
 
-			//Get the element
- 			if commandStr[0:3] == "get" {
-				var key string  = commandStr[4:cant-2]
-				fmt.Println("Key: ",key)
-				b, err := getElement(key)
-				if b!=nil {
-					conn.Write(b)
-					conn.Write([]byte("\n"))
-				} else {
-					if err==nil{
-						conn.Write([]byte("Key not found\n"))
-					} else {	
-						fmt.Println("Error: ", err)
-					}
-				}
-				continue
-			}
-
 			//Get the total quantity of elements
- 			if commandStr[0:9] == "elements2" {
+ 			if commandStr[0:8] == "elements" {
 
 				comandos := strings.Split(commandStr[:cant-2]," ")
 
 				fmt.Println("Collection: ",comandos[1], " - ",len(comandos[1]))				
 
-				b, err := getElements2(comandos[1])
+				b, err := getElements(comandos[1])
 				if err==nil {
 					conn.Write(b)
 					conn.Write([]byte("\n"))
@@ -212,42 +194,17 @@ func handleHttpConnection(conn net.Conn){
 				}
 				continue
 			}
-			
-			//Get the total quantity of elements
- 			if commandStr[0:8] == "elements" {
-				b, err := getElements()
-				if err==nil {
-					conn.Write(b)
-					conn.Write([]byte("\n"))
-				} else {
-					fmt.Println("Error: ", err)
-				}
-				continue
-			}
+ 			
+			//return the bytes used
+			if commandStr[0:6] == "memory" {
 
-			//Get the total quantity of elements
- 			if commandStr[0:4] == "test" {
+				result := "Uses: "+strconv.FormatInt(memBytes,10)+"bytes, "+ strconv.FormatInt((memBytes/(maxMemBytes/100)),10)+"%\n"
+				conn.Write([]byte(result))
 				
-				var col string  = commandStr[5:cant-2]
-				cc := collections[col]
-					
-				if cc.Mapa==nil {
-					conn.Write([]byte("Collection Unknown"))	
-				} else {
-					cc.Canal <- 1
-					b, err := json.Marshal(len(cc.Mapa))
-					<- cc.Canal
-
-					if err==nil {
-						conn.Write(b)
-						conn.Write([]byte("\n"))
-					} else {
-						fmt.Println("Error: ", err)
-					}
-				}	
 				continue
 			}
 
+			
 			//POST elements
  			if commandStr[0:4] == "post" {
 				
@@ -302,7 +259,7 @@ func createElement2(col string, valor string) (string,error) {
 	id := getId()
 
 	//Add the value to the list and get a pointer to the node	
-	n := node{id, m}
+	n := node{m}
 
 	//create the list element
 	var elemento *list.Element
@@ -341,7 +298,7 @@ func createElement2(col string, valor string) (string,error) {
 	//Increase the memory counter in a diffetet gorutine
 	go func(){
 		//Increments the memory counter (Key + Value in LRU, + Key in MAP)
-		memBytes += int64((len(id)*2)+len(m))
+		memBytes += int64(pointerLen+len(m))
 
 		if enablePrint {fmt.Println("Inc Bytes: ",memBytes)}
 
@@ -355,7 +312,7 @@ func createElement2(col string, valor string) (string,error) {
 /*
  * Get the element from the Map and push the element to the first position of the LRU-List 
 */ 
-func getElement2(col string, id string) ([]byte, error) {
+func getElement(col string, id string) ([]byte, error) {
 
 	cc := collections[col]
 
@@ -397,10 +354,23 @@ func processRequest(w http.ResponseWriter, req *http.Request){
 	//PrintInformation
 	printRequest(req)
 
+	comandos := strings.Split(req.URL.Path[1:],"/")
+
 	//Performs action based on the request Method
 	switch req.Method {
 
 		case "GET":
+
+			if comandos[1]=="elements" {
+				b, err := getElements(comandos[0])
+				if err!=nil {				
+					fmt.Println(b)
+					w.WriteHeader(500)
+					return
+				}
+				w.Write([]byte(b))
+				return
+			}
 
 			if req.URL.Path[1:]=="search" {
 				key := req.FormValue("key")
@@ -414,19 +384,9 @@ func processRequest(w http.ResponseWriter, req *http.Request){
 				w.Write(result)
 				return
 			} 
-			if req.URL.Path[1:]=="elements" {
-				b, err := getElements()
-				if err!=nil {				
-					fmt.Println(b)
-					w.WriteHeader(500)
-					return
-				}
-				w.Write([]byte(b))
-				return
-			} 
 
 			//Get the vale from the cache
-			element, err := getElement(req.URL.Path[1:])
+			element, err := getElement(comandos[0],comandos[1])
 		
 			if element!=nil {
 				//Write the response to the client
@@ -449,15 +409,21 @@ func processRequest(w http.ResponseWriter, req *http.Request){
 			//Reads the body content 
 			req.Body.Read(p)
 			
-			//Save the element in the cache
-			createElement(req.URL.Path[1:], string(p))
-			
-			//Response the 201 - created to the client
-			w.WriteHeader(201)
+			//Save the element in the cache			
+			id,err := createElement2(comandos[0], string(p))
+
+			if err!=nil{
+				fmt.Println(err)
+				w.WriteHeader(500)
+			} else {
+				headerMap.Add("element_id",id)
+				//Response the 201 - created to the client
+				w.WriteHeader(201)
+			}
 
 		case "DELETE":
 			//Get the vale from the cache
-			result := deleteElement(req.URL.Path[1:])
+			result := deleteElement(comandos[0],comandos[1])
 			
 			if result==false {
 				//Return a not-found				
@@ -478,16 +444,7 @@ func processRequest(w http.ResponseWriter, req *http.Request){
 /*
  * Get the number of elements
  */
-func getElements() ([]byte, error){
-	b, err := json.Marshal(len(mapa))
-
-	return b, err
-}				
-
-/*
- * Get the number of elements
- */
-func getElements2(col string) ([]byte, error){
+func getElements(col string) ([]byte, error){
 	cc := collections[col]
 	b, err := json.Marshal(len(cc.Mapa))
 
@@ -533,92 +490,28 @@ func printRequest(req *http.Request){
 }
 
 /*
- * Save the sent value to the map and the 
- */
-func createElement(clave string, valor string){
-
-	b := []byte(valor)
-	var f interface{}
-	err := json.Unmarshal(b, &f)
-
-	if err != nil {
-		fmt.Println("Error:", err)
-		return
-	} 
-	
-	m := f.(map[string]interface{})
-
-	var elemento *list.Element
-	elemento = mapa[clave]
-
-	if elemento == nil {
-
-		//Add the value to the list and get a pointer to the node	
-		n := node{clave, m}
-	
-		lisChan <- 1 
-		elemento = lista.PushFront(n)
-		<- lisChan	
-
-		//Save the node in the map
-		mapChan <- 1 
-		mapa[clave] = elemento
-		<- mapChan
-
-		//Increase the memory counter in a diffetet gorutine
-		go func(){
-			//Increments the memory counter (Key + Value in LRU, + Key in MAP)
-			memBytes += int64((len(clave)*2)+len(m))
-
-			if enablePrint {fmt.Println("Inc Bytes: ",memBytes)}
-
-			//Purge de LRU
-			purgeLRU()
-		}()
-		
-	} else {		
-
-		//Store the previous bytes
-		var prevBytes int = len(elemento.Value.(node).V)
-
-		//Update the element, creating a new node (I dont't know how to update only the node value)
-		elemento.Value = node{clave, m}
-
-		//Move the element to the front of the LRU
-		go moveFront(elemento)
-
-		//Remove the element from the list in a separated gorutine
-		go func(){
-			//Update the Bytes counter
-			memBytes = memBytes - int64(prevBytes) + int64(len(m))
-
-			if enablePrint {fmt.Println("Upd Bytes: ",memBytes)}
-
-			//Purge LRU
-			purgeLRU()
-		}()		
-	
-	}
-
-}
-
-/*
  * Purge the LRU List deleting the last element
  */
-func purgeLRU2(){
+func purgeLRU(){
 
 	//Checks the memory limit and decrease it if it's necessary
 	for memBytes>maxMemBytes {
 
-		fmt.Println("Max memory reached!")
+		fmt.Println("Max memory reached!", memBytes)
 
+		if lista.Len()==0 {
+			fmt.Println("Empty LRU")
+			return
+		}
+
+		fmt.Println("LRU Elements: ", lista.Len())
 		//Get the last element to remove it. Sync is not needed because nothing 
 		//happens if the element is moved in the middle of this rutine, at last it will be removed
-		lastElement := lista.Back()
+		lastElement := lista.Back()		
 		
 		//Delete the element from the map
 		//var key string = lastElement.Value.(node).K		
-		var removeBytes int = len(lastElement.Value.(node).V)+1 //Add 1 because we are going to add a "S"
+		var removeBytes int = len(lastElement.Value.(node).V)-1 //Add 1 because we are going to add a "D"
 		
 		lastElement.Value = "D"
 		
@@ -634,61 +527,6 @@ func purgeLRU2(){
 
 }
 
-/*
- * Purge the LRU List deleting the last element
- */
-func purgeLRU(){
-
-	//Checks the memory limit and decrease it if it's necessary
-	for memBytes>maxMemBytes {
-
-		fmt.Println("Max memory reached!")
-
-		//Get the last element to remove it. Sync is not needed because nothing 
-		//happens if the element is moved in the middle of this rutine, at last it will be removed
-		lastElement := lista.Back()
-		
-		//Delete the element from the map
-		var key string = lastElement.Value.(node).K		
-		var removeBytes int = len(lastElement.Value.(node).V)+(len(key)*2)
-		
-		mapChan <- 1
-		delete(mapa, key)		
-		<- mapChan
-	
-		//Delete the element from the LRU
-		lisChan <- 1 
-		lista.Remove(lastElement)		
-		<- lisChan
-
-		memBytes -= int64(removeBytes)
-
-		if enablePrint {fmt.Println("Purge Done: ",memBytes)}
-	}
-
-}
-
-/*
- * Get the element from the Map and push the element to the first position of the LRU-List 
-*/ 
-func getElement(clave string) ([]byte, error) {
-
-	//Get the element from the map
-	elemento := mapa[clave]	
-
-	//checks if the element exists in the cache
-	if elemento==nil {
-		return nil, nil
-	} 
-
-	//Move the element to the front of the LRU-List using a goru
-	go moveFront(elemento)
-
-	//Return the element
-	b, err := json.Marshal(elemento.Value.(node).V)
-	return b, err
-
-}
 
 /*
  * Move the element to the front of the LRU, because it was readed or updated
@@ -701,13 +539,16 @@ func moveFront(elemento *list.Element){
 	if enablePrint {fmt.Println("LRU Updated")}
 }
 
+
 /*
  * Delete the key in the cache
  */
-func deleteElement(clave string) bool {
+func deleteElement(col string, clave string) bool {
+
+	cc := collections[col]
 
 	//Get the element from the map
-	elemento := mapa[clave]	
+	elemento := cc.Mapa[clave]	
 
 	//checks if the element exists in the cache
 	if elemento==nil {
@@ -715,9 +556,9 @@ func deleteElement(clave string) bool {
 	} 
 
 	//Delete the key in the map
-	mapChan <- 1
-	delete(mapa, clave)
-	<- mapChan	
+	cc.Canal <- 1
+	delete(cc.Mapa, clave)
+	<- cc.Canal
 
 	//Remove the element from the list in a separated gorutine
 	go func(){
@@ -729,7 +570,7 @@ func deleteElement(clave string) bool {
 
 		//Decrement the byte counter, decrease the Key * 2 + Value
 		var n node = elemento.Value.(node)
-		memBytes -= int64((len(n.K)*2)+len(n.V))
+		memBytes -= int64(len(n.V)+pointerLen)
 
 		if enablePrint {fmt.Println("Dec Bytes: ",memBytes)}
 
@@ -740,5 +581,4 @@ func deleteElement(clave string) bool {
 	return true
 
 }
-
 
