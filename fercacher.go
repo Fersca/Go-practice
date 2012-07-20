@@ -23,6 +23,8 @@ import (
 	"encoding/json"
 	"strings"
 	"strconv"
+	"io/ioutil"
+	"os"
 	//"time"
 )
 
@@ -30,7 +32,7 @@ import (
 var lista list.List
 
 //Create the map to store the key-elements
-var mapa map[string]*list.Element
+var mapa map[int]*list.Element
 
 //Max byte in memory (Key + Data), today set to 100KB
 const maxMemBytes int64 = 51550//1048576
@@ -52,10 +54,15 @@ const enablePrint bool = false
 type node struct {
 	V map[string]interface{}
 }
+//Struct to hold the value and the key in the LRU
+type searchNode struct {
+	Id int
+	Document map[string]interface{}
+}
 
 //Holds the relation between the direfent collections of element with the corresponding channel to write it
 type collectionChannel struct {
-	Mapa map[string]*list.Element
+	Mapa map[int]*list.Element
 	Canal chan int
 }
 
@@ -68,18 +75,19 @@ var collections map[string]collectionChannel
 func init(){
 
 	//Welcome Message
-	fmt.Println("Starting Fercacher HTTP Key-Value Server")
+	fmt.Println("Starting Fercacher Document Database")
 
 	//Set the thread quantity based on the number of CPU's
 	coreNum := runtime.NumCPU()
 	fmt.Println("Core numbers: ",coreNum)
+	fmt.Println("Max memory defined as: ",maxMemBytes," bytes")
 	runtime.GOMAXPROCS(coreNum)
 
 	//Create a new doble-linked list to act as LRU
 	lista  = *list.New()
 
 	//Create a new Map to search for elements
-	mapa = make(map[string]*list.Element)
+	mapa = make(map[int]*list.Element)
 
 	//Create the channels
 	lisChan = make(chan int,1)
@@ -156,6 +164,7 @@ func handleHttpConnection(conn net.Conn){
 				return		
 			}
 
+			//Get the element
  			if commandStr[0:3] == "get" {
 			
 				comandos := strings.Split(commandStr[:cant-2]," ")
@@ -163,7 +172,7 @@ func handleHttpConnection(conn net.Conn){
 				fmt.Println("Collection: ",comandos[1], " - ",len(comandos[1]))				
 				fmt.Println("Id: ",comandos[2]," - ",len(comandos[2]))
 	
-				b,err := getElement(comandos[1],comandos[2])
+				b,err := getElement(comandos[1],atoi(comandos[2]))
 				
 				if b!=nil {
 					conn.Write(b)
@@ -213,18 +222,60 @@ func handleHttpConnection(conn net.Conn){
 				fmt.Println("Collection: ",comandos[1], " - ",len(comandos[1]))				
 				fmt.Println("JSON: ",comandos[2]," - ",len(comandos[2]))
 	
-				id,err := createElement2(comandos[1],comandos[2])
+				id,err := createElement(comandos[1],comandos[2])
 	
 				var result string
 				if err!=nil{
 					fmt.Println(err)
 				} else {
-					result = "Element Created: "+id+"\n"
+					result = "Element Created: "+strconv.Itoa(id)+"\n"
 					conn.Write([]byte(result))				
 				}
 
 				continue
 			}		
+
+			if commandStr[0:6] == "delete" {
+
+				comandos := strings.Split(commandStr[:cant-2]," ")
+
+				//Get the vale from the cache
+				result := deleteElement(comandos[1],atoi(comandos[2]))
+			
+				if result==false {
+					//Return a not-found				
+					conn.Write([]byte("Key not found"))
+				} else {
+					//Return a Ok
+					response := "Key: "+comandos[2]+" from: "+comandos[1]+" deleted\n"
+					conn.Write([]byte(response))				
+				}
+
+				continue
+
+			}
+
+			if commandStr[0:6] == "search" {
+
+				comandos := strings.Split(commandStr[:cant-2]," ")
+
+				result, err := search(comandos[1],comandos[2],comandos[3])
+
+				if err!=nil {				
+					fmt.Println(result)
+					conn.Write([]byte("Error searching\n"))
+				} else {
+					conn.Write([]byte(result))
+				}
+				continue
+			}
+
+			//Exit the connection
+			if commandStr[0:4] == "help" {
+				result := showHelp()
+				conn.Write([]byte(result))
+				continue
+			}
 
 			//Default Message
 			fmt.Println("Comando no definido: ", commandStr)	
@@ -239,9 +290,29 @@ func handleHttpConnection(conn net.Conn){
 }
 
 /*
+ *
+ */
+func showHelp() string {
+
+	var help string = "FerCacher Help\n\n"
+
+	help += "Available commands:\n\n"
+
+	help  += "exit 					- Close the connection.\n"
+	help  += "get {collection} {id}			- Get the JSON document from the specified collection.\n"
+	help  += "elements {collection}			- Get the total elemets from the specified collection.\n"
+	help  += "memory 					- Get the total ammount of memory used.\n"
+	help  += "post {collection} {json}		- Save a new JSON document in the specified collection.\n"		
+	help  += "delete {collection} {id}		- Delete the JSON document from the specified collection.\n"		
+	help  += "search {collection} {key} {value}	- Search in the specified collection for Json documents with keys with the indicated value.\n"		
+	return help	
+ 
+}
+
+/*
  * Create the element in the collection
  */
-func createElement2(col string, valor string) (string,error) {
+func createElement(col string, valor string) (int,error) {
 
 	//Create the Json element
 	b := []byte(valor)
@@ -249,7 +320,7 @@ func createElement2(col string, valor string) (string,error) {
 	err := json.Unmarshal(b, &f)
 
 	if err != nil {
-		return "0",err
+		return 0,err
 	} 
 	
 	//transform it to a map
@@ -269,14 +340,15 @@ func createElement2(col string, valor string) (string,error) {
 
 	//get the collection-channel relation
 	cc := collections[col]
-		
+	var createDir bool = false
+
 	if cc.Mapa==nil {
 	
 		fmt.Println("Creating new collection: ",col)
 		//Create the new map and the new channel
-		var newMapa map[string]*list.Element
+		var newMapa map[int]*list.Element
 		var newMapChann chan int
-		newMapa = make(map[string]*list.Element)
+		newMapa = make(map[int]*list.Element)
 		newMapChann = make(chan int,1)
 
 		newCC := collectionChannel{newMapa, newMapChann}
@@ -286,6 +358,7 @@ func createElement2(col string, valor string) (string,error) {
 		collectionChan <- 1
 		collections[col] = newCC
 		<- collectionChan
+		createDir = true
 
 	} else {
 		fmt.Println("Using collection: ",col)
@@ -302,6 +375,9 @@ func createElement2(col string, valor string) (string,error) {
 
 		if enablePrint {fmt.Println("Inc Bytes: ",memBytes)}
 
+		//Save the Json to disk
+		saveJsonToDisk(createDir, col, id, valor)
+
 		//Purge de LRU
 		purgeLRU()
 	}()	
@@ -309,10 +385,26 @@ func createElement2(col string, valor string) (string,error) {
 	return id,nil
 }
 
+func saveJsonToDisk(createDir bool, col string, id int, valor string) {
+
+	if createDir {
+		os.Mkdir("data/"+col,0777)
+	}
+	
+	err := ioutil.WriteFile("data/"+col+"/"+strconv.Itoa(id)+".json", []byte(valor), 0644)
+	if err!=nil {
+		fmt.Println(err)
+	}
+}
+
+func deleteJsonFromDisk(col string, clave int){
+	os.Remove("data/"+col+"/"+strconv.Itoa(clave)+".json")
+}
+
 /*
  * Get the element from the Map and push the element to the first position of the LRU-List 
 */ 
-func getElement(col string, id string) ([]byte, error) {
+func getElement(col string, id int) ([]byte, error) {
 
 	cc := collections[col]
 
@@ -337,10 +429,11 @@ func getElement(col string, id string) ([]byte, error) {
 /*
  * the the next id
  */
-func getId() string {
+func getId() int {
 	sequence +=1
 	fmt.Println("Sequencia: ",sequence)
-	return strconv.Itoa(sequence)
+	//return strconv.Itoa(sequence)
+	return sequence
 }
 
 /*
@@ -373,9 +466,10 @@ func processRequest(w http.ResponseWriter, req *http.Request){
 			}
 
 			if req.URL.Path[1:]=="search" {
+				col := req.FormValue("col")
 				key := req.FormValue("key")
 				value := req.FormValue("value")
-				result, err := search(key, value)
+				result, err := search(col,key, value)
 				if err!=nil {				
 					fmt.Println(result)
 					w.WriteHeader(500)
@@ -386,7 +480,7 @@ func processRequest(w http.ResponseWriter, req *http.Request){
 			} 
 
 			//Get the vale from the cache
-			element, err := getElement(comandos[0],comandos[1])
+			element, err := getElement(comandos[0],atoi(comandos[1]))
 		
 			if element!=nil {
 				//Write the response to the client
@@ -410,20 +504,20 @@ func processRequest(w http.ResponseWriter, req *http.Request){
 			req.Body.Read(p)
 			
 			//Save the element in the cache			
-			id,err := createElement2(comandos[0], string(p))
+			id,err := createElement(comandos[0], string(p))
 
 			if err!=nil{
 				fmt.Println(err)
 				w.WriteHeader(500)
 			} else {
-				headerMap.Add("element_id",id)
+				headerMap.Add("element_id",strconv.Itoa(id))
 				//Response the 201 - created to the client
 				w.WriteHeader(201)
 			}
 
 		case "DELETE":
 			//Get the vale from the cache
-			result := deleteElement(comandos[0],comandos[1])
+			result := deleteElement(comandos[0],atoi(comandos[1]))
 			
 			if result==false {
 				//Return a not-found				
@@ -441,6 +535,11 @@ func processRequest(w http.ResponseWriter, req *http.Request){
 
 }
 
+func atoi(value string) int {
+	number, _ := strconv.Atoi(value)
+	return number
+}
+
 /*
  * Get the number of elements
  */
@@ -454,17 +553,19 @@ func getElements(col string) ([]byte, error){
 /*
  * Search the jsons that has the key with the specified value
  */
-func search(key string, value string) ([]byte, error) {
+func search(col string, key string, value string) ([]byte, error) {
 
 	arr := make([]interface{},0)	
-		
+	cc := collections[col]		
+
 	//Search the Map for the value
-	for _, v := range mapa {
-		//TODO: This is absolutely un-efficient, we are creating a new array for each iteration. Fix this.
+	for id, v := range cc.Mapa {
+		//TODO: This is absolutely inefficient, I'm creating a new array for each iteration. Fix this.
 		//Is this possible to have something like java ArrayLists  ?
 		nod := v.Value.(node)
+		sNode := searchNode{id,nod.V}
 		if nod.V[key]==value {
-			arr = append(arr,nod)
+			arr = append(arr,sNode)
 		}
 	}
 
@@ -543,7 +644,7 @@ func moveFront(elemento *list.Element){
 /*
  * Delete the key in the cache
  */
-func deleteElement(col string, clave string) bool {
+func deleteElement(col string, clave int) bool {
 
 	cc := collections[col]
 
@@ -573,6 +674,8 @@ func deleteElement(col string, clave string) bool {
 		memBytes -= int64(len(n.V)+pointerLen)
 
 		if enablePrint {fmt.Println("Dec Bytes: ",memBytes)}
+
+		deleteJsonFromDisk(col, clave)
 
 		//Print message
 		if enablePrint {fmt.Println("Delete successfull, ID: ",clave)}
