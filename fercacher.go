@@ -576,6 +576,9 @@ func search(col string, key string, value string) ([]byte, error) {
 
 }
 
+
+
+
 /*
  * Print the request information 
  */
@@ -600,18 +603,40 @@ func purgeLRU(){
 
 		fmt.Println("Max memory reached!", memBytes)
 
+		/*
 		if lista.Len()==0 {
 			fmt.Println("Empty LRU")
 			return
 		}
+		*/
 
 		fmt.Println("LRU Elements: ", lista.Len())
 		//Get the last element to remove it. Sync is not needed because nothing 
 		//happens if the element is moved in the middle of this rutine, at last it will be removed
 		lastElement := lista.Back()		
-		
+		if lastElement==nil {
+			fmt.Println("Empty LRU")
+			return
+		}
+
 		//Delete the element from the map
-		//var key string = lastElement.Value.(node).K		
+		//var key string = lastElement.Value.(node).K
+
+		/*
+
+		TODO: aca hay un bug pero aun no se como safarlo
+		lo que esta pasando es que pincha en la siguiente linea cuando no hay mas elementos en la 
+		LRU, lo que me hizo pensar si conceptualmente esta bien en quedarse sin elementos en la 
+		LRU y seguir metiendo en el mapa, lo que habria que hacer es sacar los elementos de ambos lados
+		de esa forma el bloque de memoria asignado para cache se reparte entre ambos, con lo cual
+		se llegaria a un tope y no bajaria nunca el tamanio del LRU
+		cambiar como para que se deje grabado en el disco pero se saque de la LRU el ultimo y listo
+		y cuando se elimine. El problema que va a traer eso es que si esta llena la memoria, indefectiblemente
+		se va a ir a disco siempre a buscar las cosas, no entiendo bien que quise poner con esa D que le estoy
+		agregando, creo qeu lo queria marcar como deleted, pero no se para que.... 
+
+
+		*/
 		var removeBytes int = len(lastElement.Value.(node).V)-1 //Add 1 because we are going to add a "D"
 		
 		lastElement.Value = "D"
