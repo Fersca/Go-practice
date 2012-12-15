@@ -53,6 +53,8 @@ const enablePrint bool = false
 //Struct to hold the value and the key in the LRU
 type node struct {
 	V map[string]interface{}
+	col string
+	key int
 }
 //Struct to hold the value and the key in the LRU
 type searchNode struct {
@@ -60,7 +62,7 @@ type searchNode struct {
 	Document map[string]interface{}
 }
 
-//Holds the relation between the direfent collections of element with the corresponding channel to write it
+//Holds the relation between the diferent collections of element with the corresponding channel to write it
 type collectionChannel struct {
 	Mapa map[int]*list.Element
 	Canal chan int
@@ -330,7 +332,7 @@ func createElement(col string, valor string) (int,error) {
 	id := getId()
 
 	//Add the value to the list and get a pointer to the node	
-	n := node{m}
+	n := node{m,col,id}
 
 	//create the list element
 	var elemento *list.Element
@@ -370,8 +372,8 @@ func createElement(col string, valor string) (int,error) {
 
 	//Increase the memory counter in a diffetet gorutine
 	go func(){
-		//Increments the memory counter (Key + Value in LRU, + Key in MAP)
-		memBytes += int64(pointerLen+len(m))
+		//Increments the memory counter (Key + Value in LRU + len of col name, + Key in MAP)
+		memBytes += int64(pointerLen+len(m)+len(col))
 
 		if enablePrint {fmt.Println("Inc Bytes: ",memBytes)}
 
@@ -603,14 +605,8 @@ func purgeLRU(){
 
 		fmt.Println("Max memory reached!", memBytes)
 
-		/*
-		if lista.Len()==0 {
-			fmt.Println("Empty LRU")
-			return
-		}
-		*/
-
 		fmt.Println("LRU Elements: ", lista.Len())
+		
 		//Get the last element to remove it. Sync is not needed because nothing 
 		//happens if the element is moved in the middle of this rutine, at last it will be removed
 		lastElement := lista.Back()		
@@ -619,34 +615,16 @@ func purgeLRU(){
 			return
 		}
 
-		//Delete the element from the map
-		//var key string = lastElement.Value.(node).K
+		deleteElementFromLRU(lastElement)
 
-		/*
+		//Finds the collection and the key to remove it from map
+		cc := collections[lastElement.Value.(node).col]
+		clave := lastElement.Value.(node).key
 
-		TODO: aca hay un bug pero aun no se como safarlo
-		lo que esta pasando es que pincha en la siguiente linea cuando no hay mas elementos en la 
-		LRU, lo que me hizo pensar si conceptualmente esta bien en quedarse sin elementos en la 
-		LRU y seguir metiendo en el mapa, lo que habria que hacer es sacar los elementos de ambos lados
-		de esa forma el bloque de memoria asignado para cache se reparte entre ambos, con lo cual
-		se llegaria a un tope y no bajaria nunca el tamanio del LRU
-		cambiar como para que se deje grabado en el disco pero se saque de la LRU el ultimo y listo
-		y cuando se elimine. El problema que va a traer eso es que si esta llena la memoria, indefectiblemente
-		se va a ir a disco siempre a buscar las cosas, no entiendo bien que quise poner con esa D que le estoy
-		agregando, creo qeu lo queria marcar como deleted, pero no se para que.... 
-
-
-		*/
-		var removeBytes int = len(lastElement.Value.(node).V)-1 //Add 1 because we are going to add a "D"
-		
-		lastElement.Value = "D"
-		
-		//Delete the element from the LRU
-		lisChan <- 1 
-		lista.Remove(lastElement)		
-		<- lisChan
-
-		memBytes -= int64(removeBytes)
+		//Delete the key in the map
+		cc.Canal <- 1
+		delete(cc.Mapa, clave)
+		<- cc.Canal
 
 		if enablePrint {fmt.Println("Purge Done: ",memBytes)}
 	}
@@ -681,14 +659,43 @@ func deleteElement(col string, clave int) bool {
 		return false
 	} 
 
+	//TODO: aca hay un bug, si no esta la clave en el mapa al momento del delete, no lo borra del disco
+	//puede suceder si sacamos la key por LRU. O si acaba de iniciar el sistema y no tenemos nada cacheado
+	//Lo que se puede hacer es que se borre siempre del disco o.... algo mejor, si se llego a la memoria maxima solo se 
+	//borre del disco, pero para eso tendriamos que levantar todo en memoria al inicio... pasa saber que nada falta
+	//el tema es que limitamos la cantidad de cosas a guardar por la memoria, lo mejor es borra del disco derecho.
+
+
 	//Delete the key in the map
 	cc.Canal <- 1
 	delete(cc.Mapa, clave)
 	<- cc.Canal
 
-	//Remove the element from the list in a separated gorutine
-	go func(){
-		
+	//if it not found, dont delete it form LRU nor disk
+	if elemento!=nil {
+
+		//Remove the element from the list in a separated gorutine
+		go func(){
+			
+			deleteElementFromLRU(elemento)
+
+			deleteJsonFromDisk(col, clave)
+
+			//Print message
+			if enablePrint {fmt.Println("Delete successfull, ID: ",clave)}
+		}()
+
+		}
+	
+	return true
+
+}
+
+/*
+ * Delete the element from de LRU and decrement the counters
+ */
+func deleteElementFromLRU(elemento *list.Element){
+
 		//Delete the element in the LRU List 
 		lisChan <- 1 
 		lista.Remove(elemento)
@@ -699,14 +706,6 @@ func deleteElement(col string, clave int) bool {
 		memBytes -= int64(len(n.V)+pointerLen)
 
 		if enablePrint {fmt.Println("Dec Bytes: ",memBytes)}
-
-		deleteJsonFromDisk(col, clave)
-
-		//Print message
-		if enablePrint {fmt.Println("Delete successfull, ID: ",clave)}
-	}()
-
-	return true
 
 }
 
