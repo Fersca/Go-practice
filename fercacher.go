@@ -31,18 +31,14 @@ import (
 //Create the list to support the LRU List
 var lista list.List
 
-//Create the map to store the key-elements
-var mapa map[int]*list.Element
-
 //Max byte in memory (Key + Data), today set to 100KB
-const maxMemBytes int64 = 51550//1048576
+const maxMemBytes int64 = 50//1048576
 var memBytes int64 = 0
 var sequence int = 0
 const pointerLen int = 4+8 //Bytes of pointer in 32bits machines plus int64 for the key of element in hashmemBytes
 
 //Channes to sync the List, map
 var lisChan chan int
-var mapChan chan int
 
 //chennel to acces to the collection map
 var collectionChan chan int
@@ -53,18 +49,19 @@ const enablePrint bool = false
 //Struct to hold the value and the key in the LRU
 type node struct {
 	V map[string]interface{}
+	Swap bool
 	col string
-	key int
+	key string
 }
 //Struct to hold the value and the key in the LRU
 type searchNode struct {
-	Id int
+	Id string
 	Document map[string]interface{}
 }
 
 //Holds the relation between the diferent collections of element with the corresponding channel to write it
 type collectionChannel struct {
-	Mapa map[int]*list.Element
+	Mapa map[string]*list.Element
 	Canal chan int
 }
 
@@ -88,18 +85,11 @@ func init(){
 	//Create a new doble-linked list to act as LRU
 	lista  = *list.New()
 
-	//Create a new Map to search for elements
-	mapa = make(map[int]*list.Element)
-
 	//Create the channels
 	lisChan = make(chan int,1)
-	mapChan = make(chan int,1)
 	collectionChan = make(chan int,1)
 
-	//crea el resto de las pruebas
-	cc := collectionChannel{mapa, mapChan}
 	collections = make(map[string]collectionChannel)
-	collections["todos"] = cc
 
 	fmt.Println("Ready.")
 }
@@ -136,7 +126,7 @@ func console(){
 			// handle error
 			continue
 		}
-		go handleHttpConnection(conn)
+		go handleTCPConnection(conn)
 	}
 
 }
@@ -144,7 +134,7 @@ func console(){
 /*
  * Process each HTTP connection
  */
-func handleHttpConnection(conn net.Conn){
+func handleTCPConnection(conn net.Conn){
 
 	fmt.Println("Conexion Establecida")
 
@@ -174,7 +164,8 @@ func handleHttpConnection(conn net.Conn){
 				fmt.Println("Collection: ",comandos[1], " - ",len(comandos[1]))				
 				fmt.Println("Id: ",comandos[2]," - ",len(comandos[2]))
 	
-				b,err := getElement(comandos[1],atoi(comandos[2]))
+				//b,err := getElement(comandos[1],atoi(comandos[2]))
+				b,err := getElement(comandos[1],comandos[2])
 				
 				if b!=nil {
 					conn.Write(b)
@@ -209,7 +200,8 @@ func handleHttpConnection(conn net.Conn){
 			//return the bytes used
 			if commandStr[0:6] == "memory" {
 
-				result := "Uses: "+strconv.FormatInt(memBytes,10)+"bytes, "+ strconv.FormatInt((memBytes/(maxMemBytes/100)),10)+"%\n"
+				//result := "Uses: "+strconv.FormatInt(memBytes,10)+"bytes, "+ strconv.FormatInt((memBytes/(maxMemBytes/100)),10)+"%\n"
+				result := "Uses: "+strconv.FormatInt(memBytes,10)+"bytes\n"
 				conn.Write([]byte(result))
 				
 				continue
@@ -221,16 +213,18 @@ func handleHttpConnection(conn net.Conn){
 				
 				comandos := strings.Split(commandStr[:cant-2]," ")
 
-				fmt.Println("Collection: ",comandos[1], " - ",len(comandos[1]))				
-				fmt.Println("JSON: ",comandos[2]," - ",len(comandos[2]))
+				fmt.Println("Collection: ",comandos[1], " - ",len(comandos[1]))	
+				fmt.Println("Key: ",comandos[2], " - ",len(comandos[2]))
+				fmt.Println("JSON: ",comandos[3]," - ",len(comandos[3]))
 	
-				id,err := createElement(comandos[1],comandos[2])
+				err := createElement(comandos[1],comandos[2],comandos[3])
 	
 				var result string
 				if err!=nil{
 					fmt.Println(err)
 				} else {
-					result = "Element Created: "+strconv.Itoa(id)+"\n"
+					//result = "Element Created: "+strconv.Itoa(id)+"\n"
+					result = "Element Created: "+comandos[2]+"\n"
 					conn.Write([]byte(result))				
 				}
 
@@ -242,8 +236,9 @@ func handleHttpConnection(conn net.Conn){
 				comandos := strings.Split(commandStr[:cant-2]," ")
 
 				//Get the vale from the cache
-				result := deleteElement(comandos[1],atoi(comandos[2]))
-			
+				//result := deleteElement(comandos[1],atoi(comandos[2]))
+				result := deleteElement(comandos[1],comandos[2])
+				
 				if result==false {
 					//Return a not-found				
 					conn.Write([]byte("Key not found"))
@@ -312,133 +307,6 @@ func showHelp() string {
 }
 
 /*
- * Create the element in the collection
- */
-func createElement(col string, valor string) (int,error) {
-
-	//Create the Json element
-	b := []byte(valor)
-	var f interface{}
-	err := json.Unmarshal(b, &f)
-
-	if err != nil {
-		return 0,err
-	} 
-	
-	//transform it to a map
-	m := f.(map[string]interface{})
-
-	//Get a new Id from the sequence
-	id := getId()
-
-	//Add the value to the list and get a pointer to the node	
-	n := node{m,col,id}
-
-	//create the list element
-	var elemento *list.Element
-	lisChan <- 1 
-	elemento = lista.PushFront(n)
-	<- lisChan	
-
-	//get the collection-channel relation
-	cc := collections[col]
-	var createDir bool = false
-
-	if cc.Mapa==nil {
-	
-		fmt.Println("Creating new collection: ",col)
-		//Create the new map and the new channel
-		var newMapa map[int]*list.Element
-		var newMapChann chan int
-		newMapa = make(map[int]*list.Element)
-		newMapChann = make(chan int,1)
-
-		newCC := collectionChannel{newMapa, newMapChann}
-		newCC.Mapa[id] = elemento
-
-		//The collection doesn't exist, create one
-		collectionChan <- 1
-		collections[col] = newCC
-		<- collectionChan
-		createDir = true
-
-	} else {
-		fmt.Println("Using collection: ",col)
-		//Save the node in the map
-		cc.Canal <- 1
-		cc.Mapa[id] = elemento
-		<- cc.Canal
-	}
-
-	//Increase the memory counter in a diffetet gorutine
-	go func(){
-		//Increments the memory counter (Key + Value in LRU + len of col name, + Key in MAP)
-		memBytes += int64(pointerLen+len(m)+len(col))
-
-		if enablePrint {fmt.Println("Inc Bytes: ",memBytes)}
-
-		//Save the Json to disk
-		saveJsonToDisk(createDir, col, id, valor)
-
-		//Purge de LRU
-		purgeLRU()
-	}()	
-
-	return id,nil
-}
-
-func saveJsonToDisk(createDir bool, col string, id int, valor string) {
-
-	if createDir {
-		os.Mkdir("data/"+col,0777)
-	}
-	
-	err := ioutil.WriteFile("data/"+col+"/"+strconv.Itoa(id)+".json", []byte(valor), 0644)
-	if err!=nil {
-		fmt.Println(err)
-	}
-}
-
-func deleteJsonFromDisk(col string, clave int){
-	os.Remove("data/"+col+"/"+strconv.Itoa(clave)+".json")
-}
-
-/*
- * Get the element from the Map and push the element to the first position of the LRU-List 
-*/ 
-func getElement(col string, id int) ([]byte, error) {
-
-	cc := collections[col]
-
-	//Get the element from the map
-	elemento := cc.Mapa[id]	
-
-	//checks if the element exists in the cache
-	if elemento==nil {
-		return nil, nil
-	} 
-
-	//Move the element to the front of the LRU-List using a goru
-	go moveFront(elemento)
-
-	//Return the element
-	b, err := json.Marshal(elemento.Value.(node).V)
-	return b, err
-
-}
-
-
-/*
- * the the next id
- */
-func getId() int {
-	sequence +=1
-	fmt.Println("Sequencia: ",sequence)
-	//return strconv.Itoa(sequence)
-	return sequence
-}
-
-/*
  * Process the commands recived from internet
  */
 func processRequest(w http.ResponseWriter, req *http.Request){
@@ -482,8 +350,9 @@ func processRequest(w http.ResponseWriter, req *http.Request){
 			} 
 
 			//Get the vale from the cache
-			element, err := getElement(comandos[0],atoi(comandos[1]))
-		
+			//element, err := getElement(comandos[0],atoi(comandos[1]))
+			element, err := getElement(comandos[0],comandos[1])
+
 			if element!=nil {
 				//Write the response to the client
 				w.Write([]byte(element))
@@ -506,21 +375,23 @@ func processRequest(w http.ResponseWriter, req *http.Request){
 			req.Body.Read(p)
 			
 			//Save the element in the cache			
-			id,err := createElement(comandos[0], string(p))
+			err := createElement(comandos[0],comandos[1],string(p))
 
 			if err!=nil{
 				fmt.Println(err)
 				w.WriteHeader(500)
 			} else {
-				headerMap.Add("element_id",strconv.Itoa(id))
+				//headerMap.Add("element_id",strconv.Itoa(id))
+				headerMap.Add("element_id",comandos[1])
 				//Response the 201 - created to the client
 				w.WriteHeader(201)
 			}
 
 		case "DELETE":
 			//Get the vale from the cache
-			result := deleteElement(comandos[0],atoi(comandos[1]))
-			
+			//result := deleteElement(comandos[0],atoi(comandos[1]))
+			result := deleteElement(comandos[0],comandos[1])
+
 			if result==false {
 				//Return a not-found				
 				w.WriteHeader(404)
@@ -534,6 +405,160 @@ func processRequest(w http.ResponseWriter, req *http.Request){
 			 //Method Not Allowed
 			w.WriteHeader(405)
 	}
+
+}
+
+
+/*
+ * Create the element in the collection
+ */
+func createElement(col string, id string, valor string) (error) {
+
+	//Create the Json element
+	b := []byte(valor)
+	var f interface{}
+	err := json.Unmarshal(b, &f)
+
+	if err != nil {
+		return err
+	} 
+	
+	//transform it to a map
+	m := f.(map[string]interface{})
+
+	//Add the value to the list and get a pointer to the node	
+	n := node{m,false,col,id}
+
+	//create the list element
+	var elemento *list.Element
+	lisChan <- 1 
+	elemento = lista.PushFront(n)
+	<- lisChan	
+
+	//get the collection-channel relation
+	cc := collections[col]
+	var createDir bool = false
+
+	if cc.Mapa==nil {
+	
+		fmt.Println("Creating new collection: ",col)
+		//Create the new map and the new channel
+		var newMapa map[string]*list.Element
+		var newMapChann chan int
+		newMapa = make(map[string]*list.Element)
+		newMapChann = make(chan int,1)
+
+		newCC := collectionChannel{newMapa, newMapChann}
+		newCC.Mapa[id] = elemento
+
+		//The collection doesn't exist, create one
+		collectionChan <- 1
+		collections[col] = newCC
+		<- collectionChan
+		createDir = true
+
+	} else {
+		fmt.Println("Using collection: ",col)
+		//Save the node in the map
+		cc.Canal <- 1
+		cc.Mapa[id] = elemento
+		<- cc.Canal
+	}
+
+	//Increase the memory counter in a diffetet gorutine
+	go func(){
+		//Increments the memory counter (Key + Value in LRU + len of col name, + Key in MAP)
+		memBytes += int64(len(b))
+
+		if enablePrint {fmt.Println("Inc Bytes: ",memBytes)}
+
+		//Save the Json to disk
+		saveJsonToDisk(createDir, col, id, valor)
+
+		//Purge de LRU
+		purgeLRU()
+	}()	
+
+	return nil
+}
+
+func saveJsonToDisk(createDir bool, col string, id string, valor string) {
+
+	if createDir {
+		os.Mkdir("data/"+col,0777)
+	}
+	
+	//err := ioutil.WriteFile("data/"+col+"/"+strconv.Itoa(id)+".json", []byte(valor), 0644)
+	err := ioutil.WriteFile("data/"+col+"/"+id+".json", []byte(valor), 0644)
+	if err!=nil {
+		fmt.Println(err)
+	}
+}
+
+func deleteJsonFromDisk(col string, clave string){
+	//os.Remove("data/"+col+"/"+strconv.Itoa(clave)+".json")
+	os.Remove("data/"+col+"/"+clave+".json")
+}
+
+func readJsonFromDisK(col string, clave string) []byte {
+	fmt.Println("Read from disk: ", col," - ",clave)
+	content, err := ioutil.ReadFile("data/"+col+"/"+clave+".json")
+	if err!=nil {
+		fmt.Println(err)
+	}
+	fmt.Println("en funcion: ",content)
+	return content
+}
+
+/*
+ * Get the element from the Map and push the element to the first position of the LRU-List 
+*/ 
+func getElement(col string, id string) ([]byte, error) {
+
+	cc := collections[col]
+
+	//Get the element from the map
+	elemento := cc.Mapa[id]	
+
+	//checks if the element exists in the cache
+	if elemento==nil {
+		return nil, nil
+	} 
+
+	//Move the element to the front of the LRU-List using a goru
+	go moveFront(elemento)
+
+	//Verifica si esta swapeado
+	if elemento.Value.(node).Swap==true {
+		
+		//Read the swapped json from disk
+		b:=readJsonFromDisK(col, id)
+
+		var f interface{}
+		err := json.Unmarshal(b, &f)
+
+		if err != nil {
+			return nil,err
+		} 
+		
+		m := f.(map[string]interface{})
+
+		//save the map in the node, mark it as un-swapped
+		var unswappedNode node 
+		unswappedNode.V = m
+		unswappedNode.Swap = false
+		elemento.Value=unswappedNode		
+
+		//increase de memory counter
+		memBytes += int64(len(b))
+
+		//as we have load content from disk, we have to purge LRU
+		go purgeLRU()
+	} 
+
+	//Return the element
+	b, err := json.Marshal(elemento.Value.(node).V)
+	return b, err
 
 }
 
@@ -579,8 +604,6 @@ func search(col string, key string, value string) ([]byte, error) {
 }
 
 
-
-
 /*
  * Print the request information 
  */
@@ -603,11 +626,11 @@ func purgeLRU(){
 	//Checks the memory limit and decrease it if it's necessary
 	for memBytes>maxMemBytes {
 
-		fmt.Println("Max memory reached!", memBytes)
+		fmt.Println("Max memory reached! swapping", memBytes)
 
 		fmt.Println("LRU Elements: ", lista.Len())
 		
-		//Get the last element to remove it. Sync is not needed because nothing 
+		//Get the last element and remove it. Sync is not needed because nothing 
 		//happens if the element is moved in the middle of this rutine, at last it will be removed
 		lastElement := lista.Back()		
 		if lastElement==nil {
@@ -615,17 +638,18 @@ func purgeLRU(){
 			return
 		}
 
+		//Remove the element from the LRU
 		deleteElementFromLRU(lastElement)
 
-		//Finds the collection and the key to remove it from map
-		cc := collections[lastElement.Value.(node).col]
-		clave := lastElement.Value.(node).key
+		//Set element as "S"wapped node
+		var swappedNode node
+		swappedNode.V = nil
+		swappedNode.Swap = true
+		lastElement.Value=swappedNode		
 
-		//Delete the key in the map
-		cc.Canal <- 1
-		delete(cc.Mapa, clave)
-		<- cc.Canal
+		fmt.Println("quedo: ",lastElement.Value.(node).Swap)
 
+		//Print a purge
 		if enablePrint {fmt.Println("Purge Done: ",memBytes)}
 	}
 
@@ -647,7 +671,7 @@ func moveFront(elemento *list.Element){
 /*
  * Delete the key in the cache
  */
-func deleteElement(col string, clave int) bool {
+func deleteElement(col string, clave string) bool {
 
 	cc := collections[col]
 
@@ -655,24 +679,12 @@ func deleteElement(col string, clave int) bool {
 	elemento := cc.Mapa[clave]	
 
 	//checks if the element exists in the cache
-	if elemento==nil {
-		return false
-	} 
-
-	//TODO: aca hay un bug, si no esta la clave en el mapa al momento del delete, no lo borra del disco
-	//puede suceder si sacamos la key por LRU. O si acaba de iniciar el sistema y no tenemos nada cacheado
-	//Lo que se puede hacer es que se borre siempre del disco o.... algo mejor, si se llego a la memoria maxima solo se 
-	//borre del disco, pero para eso tendriamos que levantar todo en memoria al inicio... pasa saber que nada falta
-	//el tema es que limitamos la cantidad de cosas a guardar por la memoria, lo mejor es borra del disco derecho.
-
-
-	//Delete the key in the map
-	cc.Canal <- 1
-	delete(cc.Mapa, clave)
-	<- cc.Canal
-
-	//if it not found, dont delete it form LRU nor disk
 	if elemento!=nil {
+		
+		//Delete the key in the map
+		cc.Canal <- 1
+		delete(cc.Mapa, clave)
+		<- cc.Canal
 
 		//Remove the element from the list in a separated gorutine
 		go func(){
@@ -685,8 +697,10 @@ func deleteElement(col string, clave int) bool {
 			if enablePrint {fmt.Println("Delete successfull, ID: ",clave)}
 		}()
 
-		}
-	
+	} else {
+		return false
+	}
+
 	return true
 
 }
@@ -703,9 +717,11 @@ func deleteElementFromLRU(elemento *list.Element){
 
 		//Decrement the byte counter, decrease the Key * 2 + Value
 		var n node = elemento.Value.(node)
-		memBytes -= int64(len(n.V)+pointerLen)
+		b, _ := json.Marshal(n.V)
+		memBytes -= int64(len(b))
 
-		if enablePrint {fmt.Println("Dec Bytes: ",memBytes)}
+		fmt.Println("Borrado: ",b)
+		fmt.Println("Dec Bytes: ",len(b))
 
 }
 
