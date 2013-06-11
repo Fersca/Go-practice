@@ -98,7 +98,7 @@ func init(){
  * Create the server
  */
 func main() {
-	
+
 	//Start the console
 	go console()
 
@@ -145,35 +145,35 @@ func handleTCPConnection(conn net.Conn){
 		//Read from connection waiting for a command
 		cant, err := conn.Read(command)
 		if err == nil {
-			
+
 			//read the command and create the string
 			var commandStr string = string(command)
-	
+
 			//Exit the connection
 			if commandStr[0:4] == "exit" {
 				fmt.Println("Cerrando Conexion")
 				conn.Close()
-				return		
+				return
 			}
 
 			//Get the element
- 			if commandStr[0:3] == "get" {
-			
+			if commandStr[0:3] == "get" {
+
 				comandos := strings.Split(commandStr[:cant-2]," ")
 
-				fmt.Println("Collection: ",comandos[1], " - ",len(comandos[1]))				
+				fmt.Println("Collection: ",comandos[1], " - ",len(comandos[1]))
 				fmt.Println("Id: ",comandos[2]," - ",len(comandos[2]))
-	
+
 				//b,err := getElement(comandos[1],atoi(comandos[2]))
 				b,err := getElement(comandos[1],comandos[2])
-				
+
 				if b!=nil {
 					conn.Write(b)
 					conn.Write([]byte("\n"))
 				} else {
 					if err==nil{
 						conn.Write([]byte("Key not found\n"))
-					} else {	
+					} else {
 						fmt.Println("Error: ", err)
 					}
 				}
@@ -181,11 +181,11 @@ func handleTCPConnection(conn net.Conn){
 			}
 
 			//Get the total quantity of elements
- 			if commandStr[0:8] == "elements" {
+			if commandStr[0:8] == "elements" {
 
 				comandos := strings.Split(commandStr[:cant-2]," ")
 
-				fmt.Println("Collection: ",comandos[1], " - ",len(comandos[1]))				
+				fmt.Println("Collection: ",comandos[1], " - ",len(comandos[1]))
 
 				b, err := getElements(comandos[1])
 				if err==nil {
@@ -196,40 +196,40 @@ func handleTCPConnection(conn net.Conn){
 				}
 				continue
 			}
- 			
+
 			//return the bytes used
 			if commandStr[0:6] == "memory" {
 
 				//result := "Uses: "+strconv.FormatInt(memBytes,10)+"bytes, "+ strconv.FormatInt((memBytes/(maxMemBytes/100)),10)+"%\n"
 				result := "Uses: "+strconv.FormatInt(memBytes,10)+"bytes\n"
 				conn.Write([]byte(result))
-				
+
 				continue
 			}
 
-			
+
 			//POST elements
- 			if commandStr[0:4] == "post" {
-				
+			if commandStr[0:4] == "post" {
+
 				comandos := strings.Split(commandStr[:cant-2]," ")
 
 				fmt.Println("Collection: ",comandos[1], " - ",len(comandos[1]))	
 				fmt.Println("Key: ",comandos[2], " - ",len(comandos[2]))
 				fmt.Println("JSON: ",comandos[3]," - ",len(comandos[3]))
-	
+
 				err := createElement(comandos[1],comandos[2],comandos[3])
-	
+
 				var result string
 				if err!=nil{
 					fmt.Println(err)
 				} else {
 					//result = "Element Created: "+strconv.Itoa(id)+"\n"
 					result = "Element Created: "+comandos[2]+"\n"
-					conn.Write([]byte(result))				
+					conn.Write([]byte(result))
 				}
 
 				continue
-			}		
+			}
 
 			if commandStr[0:6] == "delete" {
 
@@ -238,14 +238,14 @@ func handleTCPConnection(conn net.Conn){
 				//Get the vale from the cache
 				//result := deleteElement(comandos[1],atoi(comandos[2]))
 				result := deleteElement(comandos[1],comandos[2])
-				
+
 				if result==false {
 					//Return a not-found				
 					conn.Write([]byte("Key not found"))
 				} else {
 					//Return a Ok
 					response := "Key: "+comandos[2]+" from: "+comandos[1]+" deleted\n"
-					conn.Write([]byte(response))				
+					conn.Write([]byte(response))
 				}
 
 				continue
@@ -258,7 +258,7 @@ func handleTCPConnection(conn net.Conn){
 
 				result, err := search(comandos[1],comandos[2],comandos[3])
 
-				if err!=nil {				
+				if err!=nil {
 					fmt.Println(result)
 					conn.Write([]byte("Error searching\n"))
 				} else {
@@ -275,13 +275,13 @@ func handleTCPConnection(conn net.Conn){
 			}
 
 			//Default Message
-			fmt.Println("Comando no definido: ", commandStr)	
+			fmt.Println("Comando no definido: ", commandStr)
 			conn.Write([]byte("Unknown Command\n"))
 
 		} else {
-			fmt.Println("Error: ", err)	
+			fmt.Println("Error: ", err)
 		}
-		
+
 	}
 
 }
@@ -298,12 +298,12 @@ func showHelp() string {
 	help  += "exit 					- Close the connection.\n"
 	help  += "get {collection} {id}			- Get the JSON document from the specified collection.\n"
 	help  += "elements {collection}			- Get the total elemets from the specified collection.\n"
-	help  += "memory 					- Get the total ammount of memory used.\n"
-	help  += "post {collection} {json}		- Save a new JSON document in the specified collection.\n"		
-	help  += "delete {collection} {id}		- Delete the JSON document from the specified collection.\n"		
-	help  += "search {collection} {key} {value}	- Search in the specified collection for Json documents with keys with the indicated value.\n"		
-	return help	
- 
+	help  += "memory 				- Get the total ammount of memory used.\n"
+	help  += "post {collection} {json}		- Save a new JSON document in the specified collection.\n"
+	help  += "delete {collection} {id}		- Delete the JSON document from the specified collection.\n"
+	help  += "search {collection} {key} {value}	- Search in the specified collection for Json documents with keys with the indicated value.\n"
+	return help
+
 }
 
 /*
@@ -326,7 +326,7 @@ func processRequest(w http.ResponseWriter, req *http.Request){
 
 			if comandos[1]=="elements" {
 				b, err := getElements(comandos[0])
-				if err!=nil {				
+				if err!=nil {
 					fmt.Println(b)
 					w.WriteHeader(500)
 					return
@@ -340,14 +340,14 @@ func processRequest(w http.ResponseWriter, req *http.Request){
 				key := req.FormValue("key")
 				value := req.FormValue("value")
 				result, err := search(col,key, value)
-				if err!=nil {				
+				if err!=nil {
 					fmt.Println(result)
 					w.WriteHeader(500)
 					return
 				}
 				w.Write(result)
 				return
-			} 
+			}
 
 			//Get the vale from the cache
 			//element, err := getElement(comandos[0],atoi(comandos[1]))
@@ -357,12 +357,12 @@ func processRequest(w http.ResponseWriter, req *http.Request){
 				//Write the response to the client
 				w.Write([]byte(element))
 			} else {
-				if err==nil {			
+				if err==nil {
 					//Return a not-found				
 					w.WriteHeader(404)
 				} else {
 					w.WriteHeader(500)
-				}		
+				}
 			}
 
 		case "PUT":
@@ -370,10 +370,10 @@ func processRequest(w http.ResponseWriter, req *http.Request){
 		case "POST":
 			//Create the array to hold the body
 			var p []byte = make([]byte,req.ContentLength)
-			
+
 			//Reads the body content 
 			req.Body.Read(p)
-			
+
 			//Save the element in the cache			
 			err := createElement(comandos[0],comandos[1],string(p))
 
@@ -421,8 +421,8 @@ func createElement(col string, id string, valor string) (error) {
 
 	if err != nil {
 		return err
-	} 
-	
+	}
+
 	//transform it to a map
 	m := f.(map[string]interface{})
 
@@ -431,16 +431,16 @@ func createElement(col string, id string, valor string) (error) {
 
 	//create the list element
 	var elemento *list.Element
-	lisChan <- 1 
+	lisChan <- 1
 	elemento = lista.PushFront(n)
-	<- lisChan	
+	<- lisChan
 
 	//get the collection-channel relation
 	cc := collections[col]
 	var createDir bool = false
 
 	if cc.Mapa==nil {
-	
+
 		fmt.Println("Creating new collection: ",col)
 		//Create the new map and the new channel
 		var newMapa map[string]*list.Element
@@ -477,7 +477,7 @@ func createElement(col string, id string, valor string) (error) {
 
 		//Purge de LRU
 		purgeLRU()
-	}()	
+	}()
 
 	return nil
 }
@@ -487,7 +487,7 @@ func saveJsonToDisk(createDir bool, col string, id string, valor string) {
 	if createDir {
 		os.Mkdir("data/"+col,0777)
 	}
-	
+
 	//err := ioutil.WriteFile("data/"+col+"/"+strconv.Itoa(id)+".json", []byte(valor), 0644)
 	err := ioutil.WriteFile("data/"+col+"/"+id+".json", []byte(valor), 0644)
 	if err!=nil {
@@ -512,25 +512,25 @@ func readJsonFromDisK(col string, clave string) []byte {
 
 /*
  * Get the element from the Map and push the element to the first position of the LRU-List 
-*/ 
+*/
 func getElement(col string, id string) ([]byte, error) {
 
 	cc := collections[col]
 
 	//Get the element from the map
-	elemento := cc.Mapa[id]	
+	elemento := cc.Mapa[id]
 
 	//checks if the element exists in the cache
 	if elemento==nil {
 		return nil, nil
-	} 
+	}
 
 	//Move the element to the front of the LRU-List using a goru
 	go moveFront(elemento)
 
 	//Verifica si esta swapeado
 	if elemento.Value.(node).Swap==true {
-		
+
 		//Read the swapped json from disk
 		b:=readJsonFromDisK(col, id)
 
@@ -539,22 +539,22 @@ func getElement(col string, id string) ([]byte, error) {
 
 		if err != nil {
 			return nil,err
-		} 
-		
+		}
+
 		m := f.(map[string]interface{})
 
 		//save the map in the node, mark it as un-swapped
-		var unswappedNode node 
+		var unswappedNode node
 		unswappedNode.V = m
 		unswappedNode.Swap = false
-		elemento.Value=unswappedNode		
+		elemento.Value=unswappedNode
 
 		//increase de memory counter
 		memBytes += int64(len(b))
 
 		//as we have load content from disk, we have to purge LRU
 		go purgeLRU()
-	} 
+	}
 
 	//Return the element
 	b, err := json.Marshal(elemento.Value.(node).V)
@@ -575,15 +575,15 @@ func getElements(col string) ([]byte, error){
 	b, err := json.Marshal(len(cc.Mapa))
 
 	return b, err
-}				
+}
 
 /*
  * Search the jsons that has the key with the specified value
  */
 func search(col string, key string, value string) ([]byte, error) {
 
-	arr := make([]interface{},0)	
-	cc := collections[col]		
+	arr := make([]interface{},0)
+	cc := collections[col]
 
 	//Search the Map for the value
 	for id, v := range cc.Mapa {
@@ -629,10 +629,10 @@ func purgeLRU(){
 		fmt.Println("Max memory reached! swapping", memBytes)
 
 		fmt.Println("LRU Elements: ", lista.Len())
-		
+
 		//Get the last element and remove it. Sync is not needed because nothing 
 		//happens if the element is moved in the middle of this rutine, at last it will be removed
-		lastElement := lista.Back()		
+		lastElement := lista.Back()
 		if lastElement==nil {
 			fmt.Println("Empty LRU")
 			return
@@ -645,7 +645,7 @@ func purgeLRU(){
 		var swappedNode node
 		swappedNode.V = nil
 		swappedNode.Swap = true
-		lastElement.Value=swappedNode		
+		lastElement.Value=swappedNode
 
 		fmt.Println("quedo: ",lastElement.Value.(node).Swap)
 
@@ -661,7 +661,7 @@ func purgeLRU(){
  */
 func moveFront(elemento *list.Element){
 	//Move the element
-	lisChan <- 1 
+	lisChan <- 1
 	lista.MoveToFront(elemento)
 	<- lisChan
 	if enablePrint {fmt.Println("LRU Updated")}
@@ -676,11 +676,11 @@ func deleteElement(col string, clave string) bool {
 	cc := collections[col]
 
 	//Get the element from the map
-	elemento := cc.Mapa[clave]	
+	elemento := cc.Mapa[clave]
 
 	//checks if the element exists in the cache
 	if elemento!=nil {
-		
+
 		//Delete the key in the map
 		cc.Canal <- 1
 		delete(cc.Mapa, clave)
@@ -688,7 +688,7 @@ func deleteElement(col string, clave string) bool {
 
 		//Remove the element from the list in a separated gorutine
 		go func(){
-			
+
 			deleteElementFromLRU(elemento)
 
 			deleteJsonFromDisk(col, clave)
@@ -711,9 +711,9 @@ func deleteElement(col string, clave string) bool {
 func deleteElementFromLRU(elemento *list.Element){
 
 		//Delete the element in the LRU List 
-		lisChan <- 1 
+		lisChan <- 1
 		lista.Remove(elemento)
-		<- lisChan 
+		<- lisChan
 
 		//Decrement the byte counter, decrease the Key * 2 + Value
 		var n node = elemento.Value.(node)
