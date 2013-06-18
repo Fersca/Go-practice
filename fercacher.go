@@ -1,15 +1,15 @@
-/* Copyright 2012 Fernando Scasserra twitter: @fersca. All rights reserved.
+/* 
+ * Mango Cache.
  *
- * Fercacher is a HTTP cache system that performs in constant time.
+ * 2013 - Fernando Scasserra - twitter: @fersca.
+ *
+ * Mango is a persistance cache system written in golang that performs in constant time.
  * It keeps a MAP to store the object internally, and a Double Linked list to purge the LRU elements.
  * 
- * To Store element, do a PUT/POST call to: /element_ID and the body of the message will be stored.
- * To get an element do a GET /element_ID, you will receive the previous stored message.
- * To delete a key do a DELETE /element_ID.
- *
  * LRU updates are done in backgrounds gorutines.
  * LRU and MAP modifications are performed through channels in order to keep them synchronized.
  * Bytes stored are counted in order to limit the amount of memory used by the application.
+ *
  */
 
 package main
@@ -74,7 +74,7 @@ var collections map[string]collectionChannel
 func init(){
 
 	//Welcome Message
-	fmt.Println("Starting Fercacher Document Database")
+	fmt.Println("Starting Mango...")
 
 	//Set the thread quantity based on the number of CPU's
 	coreNum := runtime.NumCPU()
@@ -106,7 +106,7 @@ func main() {
 	http.Handle("/", http.HandlerFunc(processRequest))
 	err := http.ListenAndServe("0.0.0.0:8080", nil)
 	if err != nil {
-		fmt.Printf("Fercacher ListenAndServe Error",err)
+		fmt.Printf("Mango ListenAndServe Error",err)
 	}
 
 }
@@ -136,7 +136,7 @@ func console(){
  */
 func handleTCPConnection(conn net.Conn){
 
-	fmt.Println("Conexion Establecida")
+	fmt.Println("Connection stablished")
 
 	//Create the array to hold the command
 	var command []byte = make([]byte,100)
@@ -287,7 +287,7 @@ func handleTCPConnection(conn net.Conn){
 }
 
 /*
- *
+ * Help
  */
 func showHelp() string {
 
@@ -313,7 +313,7 @@ func processRequest(w http.ResponseWriter, req *http.Request){
 	//Get the headers map	
 	headerMap := w.Header()
 	//Add the new headers
-	headerMap.Add("System","Fercacher 1.0")
+	headerMap.Add("System","Mango 0.1")
 	//PrintInformation
 	printRequest(req)
 
@@ -488,7 +488,6 @@ func saveJsonToDisk(createDir bool, col string, id string, valor string) {
 		os.Mkdir("data/"+col,0777)
 	}
 
-	//err := ioutil.WriteFile("data/"+col+"/"+strconv.Itoa(id)+".json", []byte(valor), 0644)
 	err := ioutil.WriteFile("data/"+col+"/"+id+".json", []byte(valor), 0644)
 	if err!=nil {
 		fmt.Println(err)
@@ -496,7 +495,6 @@ func saveJsonToDisk(createDir bool, col string, id string, valor string) {
 }
 
 func deleteJsonFromDisk(col string, clave string){
-	//os.Remove("data/"+col+"/"+strconv.Itoa(clave)+".json")
 	os.Remove("data/"+col+"/"+clave+".json")
 }
 
@@ -646,6 +644,8 @@ func purgeLRU(){
 		swappedNode.V = nil
 		swappedNode.Swap = true
 		lastElement.Value=swappedNode
+		//it would be better to replace the content of the node instead of create a new one
+		//but I cant get it done
 
 		fmt.Println("quedo: ",lastElement.Value.(node).Swap)
 
