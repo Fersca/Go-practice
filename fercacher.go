@@ -29,10 +29,10 @@ import (
 )
 
 //Create the list to support the LRU List
-var lista list.List
+var lista *list.List
 
 //Max byte in memory (Key + Data), today set to 100KB
-const maxMemBytes int64 = 50//1048576
+const maxMemBytes int64 = 5000//1048576
 var memBytes int64 = 0
 var sequence int = 0
 const pointerLen int = 4+8 //Bytes of pointer in 32bits machines plus int64 for the key of element in hashmemBytes
@@ -83,7 +83,7 @@ func init(){
 	runtime.GOMAXPROCS(coreNum)
 
 	//Create a new doble-linked list to act as LRU
-	lista  = *list.New()
+	lista  = list.New()
 
 	//Create the channels
 	lisChan = make(chan int,1)
@@ -647,8 +647,6 @@ func purgeLRU(){
 		//it would be better to replace the content of the node instead of create a new one
 		//but I cant get it done
 
-		fmt.Println("quedo: ",lastElement.Value.(node).Swap)
-
 		//Print a purge
 		if enablePrint {fmt.Println("Purge Done: ",memBytes)}
 	}
@@ -710,18 +708,18 @@ func deleteElement(col string, clave string) bool {
  */
 func deleteElementFromLRU(elemento *list.Element){
 
-		//Delete the element in the LRU List 
-		lisChan <- 1
-		lista.Remove(elemento)
-		<- lisChan
+	//Decrement the byte counter, decrease the Key * 2 + Value
+	var n node = elemento.Value.(node)
 
-		//Decrement the byte counter, decrease the Key * 2 + Value
-		var n node = elemento.Value.(node)
-		b, _ := json.Marshal(n.V)
-		memBytes -= int64(len(b))
+	b, _ := json.Marshal(n.V)
+	memBytes -= int64(len(b))
 
-		fmt.Println("Borrado: ",b)
-		fmt.Println("Dec Bytes: ",len(b))
+        //Delete the element in the LRU List 
+        lisChan <- 1
+        lista.Remove(elemento)
+        <- lisChan
+
+	fmt.Println("Dec Bytes: ",len(b))
 
 }
 
