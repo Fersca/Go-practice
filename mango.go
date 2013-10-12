@@ -25,14 +25,13 @@ import (
 	"strconv"
 	"io/ioutil"
 	"os"
-	//"time"
 )
 
 //Create the list to support the LRU List
 var lista *list.List
 
 //Max byte in memory (Key + Data), today set to 100KB
-const maxMemBytes int64 = 5000//1048576
+const maxMemBytes int64 = 1048576
 var memBytes int64 = 0
 var sequence int = 0
 const pointerLen int = 4+8 //Bytes of pointer in 32bits machines plus int64 for the key of element in hashmemBytes
@@ -92,6 +91,7 @@ func init(){
 	collections = make(map[string]collectionChannel)
 
 	fmt.Println("Ready.")
+	fmt.Println("-------------------------------")
 }
 
 /*
@@ -200,8 +200,8 @@ func handleTCPConnection(conn net.Conn){
 			//return the bytes used
 			if commandStr[0:6] == "memory" {
 
-				//result := "Uses: "+strconv.FormatInt(memBytes,10)+"bytes, "+ strconv.FormatInt((memBytes/(maxMemBytes/100)),10)+"%\n"
-				result := "Uses: "+strconv.FormatInt(memBytes,10)+"bytes\n"
+				result := "Uses: "+strconv.FormatInt(memBytes,10)+"bytes, "+ strconv.FormatInt((memBytes/(maxMemBytes/100)),10)+"%\n"
+				//result := "Uses: "+strconv.FormatInt(memBytes,10)+"bytes\n"
 				conn.Write([]byte(result))
 
 				continue
@@ -291,17 +291,30 @@ func handleTCPConnection(conn net.Conn){
  */
 func showHelp() string {
 
-	var help string = "FerCacher Help\n\n"
+	var help string = "\n\n"
 
-	help += "Available commands:\n\n"
+	help += "---------------------------------------------------------------\n"
+	help += "Mango Cacher 0.1\n"
+	help += "---------------------------------------------------------------\n\n"
 
-	help  += "exit 					- Close the connection.\n"
-	help  += "get {collection} {id}			- Get the JSON document from the specified collection.\n"
-	help  += "elements {collection}			- Get the total elemets from the specified collection.\n"
-	help  += "memory 				- Get the total ammount of memory used.\n"
-	help  += "post {collection} {json}		- Save a new JSON document in the specified collection.\n"
-	help  += "delete {collection} {id}		- Delete the JSON document from the specified collection.\n"
-	help  += "search {collection} {key} {value}	- Search in the specified collection for Json documents with keys with the indicated value.\n"
+	help += "Telnet Available commands:\n\n"
+
+	help += "- 'exit':                                Close the connection.\n"
+	help += "- 'get {collection} {key}':              Get the JSON document from the specified collection.\n"
+	help += "- 'elements {collection}':               Get the total elemets from the specified collection.\n"
+	help += "- 'memory':                              Get the total ammount of memory used.\n"
+	help += "- 'post {collection} {key} {json}':      Save a new JSON document in the specified collection.\n"
+	help += "- 'delete {collection} {key}':           Delete the JSON document from the specified collection.\n"
+	help += "- 'search {collection} {field} {value}': Search in the specified collection for Jsons with fields in the indicated value.\n"
+	help += "\n"
+	help += "HTTP Available commands (same as above):\n\n"
+
+	help += "POST/PUT --> localhost:8080/{collection}/{key}    body={json}\n"
+	help += "DELETE   --> localhost:8080/{collection}/{key} \n"  
+	help += "GET      <-- localhost:8080/{collection}/{key} \n"
+	help += "GET      <-- localhost:8080/{collection}/elements \n"
+	help += "GET      <-- localhost:8080/search?col={collection}&field={field}&value={value}\n"
+	help += "\n"
 	return help
 
 }
@@ -324,6 +337,23 @@ func processRequest(w http.ResponseWriter, req *http.Request){
 
 		case "GET":
 
+			//Serch for the specific field in the collection
+			if req.URL.Path[1:]=="search" {
+				col := req.FormValue("col")
+				key := req.FormValue("field")
+				value := req.FormValue("value")
+				fmt.Println("Searching for:",col,key,value)
+				result, err := search(col,key, value)
+				if err!=nil {
+					fmt.Println(result)
+					w.WriteHeader(500)
+					return
+				}
+				w.Write(result)
+				return
+			}
+
+			//show the elements in the collection
 			if comandos[1]=="elements" {
 				b, err := getElements(comandos[0])
 				if err!=nil {
@@ -335,19 +365,6 @@ func processRequest(w http.ResponseWriter, req *http.Request){
 				return
 			}
 
-			if req.URL.Path[1:]=="search" {
-				col := req.FormValue("col")
-				key := req.FormValue("key")
-				value := req.FormValue("value")
-				result, err := search(col,key, value)
-				if err!=nil {
-					fmt.Println(result)
-					w.WriteHeader(500)
-					return
-				}
-				w.Write(result)
-				return
-			}
 
 			//Get the vale from the cache
 			//element, err := getElement(comandos[0],atoi(comandos[1]))
@@ -504,7 +521,7 @@ func readJsonFromDisK(col string, clave string) []byte {
 	if err!=nil {
 		fmt.Println(err)
 	}
-	fmt.Println("en funcion: ",content)
+	
 	return content
 }
 
