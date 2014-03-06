@@ -218,7 +218,7 @@ func handleTCPConnection(conn net.Conn){
 				fmt.Println("Key: ",comandos[2], " - ",len(comandos[2]))
 				fmt.Println("JSON: ",comandos[3]," - ",len(comandos[3]))
 
-				err := createElement(comandos[1],comandos[2],comandos[3])
+				err := createElement(comandos[1],comandos[2],comandos[3],true,false)
 
 				var result string
 				if err!=nil{
@@ -393,7 +393,7 @@ func processRequest(w http.ResponseWriter, req *http.Request){
 			req.Body.Read(p)
 
 			//Save the element in the cache			
-			err := createElement(comandos[0],comandos[1],string(p))
+			err := createElement(comandos[0],comandos[1],string(p),true,false)
 
 			if err!=nil{
 				fmt.Println(err)
@@ -430,28 +430,50 @@ func processRequest(w http.ResponseWriter, req *http.Request){
 /*
  * Create the element in the collection
  */
-func createElement(col string, id string, valor string) (error) {
-
-	//Create the Json element
-	b := []byte(valor)
-	var f interface{}
-	err := json.Unmarshal(b, &f)
-
-	if err != nil {
-		return err
-	}
-
-	//transform it to a map
-	m := f.(map[string]interface{})
-
-	//Add the value to the list and get a pointer to the node	
-	n := node{m,false,false,col,id}
+func createElement(col string, id string, valor string, saveToDisk bool, deleted bool) (error) {
 
 	//create the list element
-	var elemento *list.Element
-	lisChan <- 1
-	elemento = lista.PushFront(n)
-	<- lisChan
+        var elemento *list.Element
+	b := []byte(valor)
+
+	if deleted==false {
+
+		//Create the Json element
+		var f interface{}
+		err := json.Unmarshal(b, &f)
+
+		if err != nil {
+			return err
+		}
+
+		//transform it to a map
+		m := f.(map[string]interface{})
+
+		//Add the value to the list and get a pointer to the node	
+		n := node{m,false,false,col,id}
+
+		lisChan <- 1
+		elemento = lista.PushFront(n)
+		<- lisChan
+
+	} else {
+
+		//if not found cache is disabled
+		if cacheNotFound==false {
+			return nil
+		}
+
+		fmt.Println("Creating node as deleted: ",col,id)
+		//create the node as deleted
+                var n node
+                n.V = nil
+		n.Deleted = true
+		n.col = col
+		n.key = id
+
+		elemento = &list.Element{Value: n}
+
+	}
 
 	//get the collection-channel relation
 	cc := collections[col]
@@ -483,19 +505,25 @@ func createElement(col string, id string, valor string) (error) {
 		<- cc.Canal
 	}
 
-	//Increase the memory counter in a diffetet gorutine
-	go func(){
-		//Increments the memory counter (Key + Value in LRU + len of col name, + Key in MAP)
-		memBytes += int64(len(b))
+	//if we are creating a deleted node, do not save it to disk
+	if deleted==false {
 
-		if enablePrint {fmt.Println("Inc Bytes: ",memBytes)}
+		//Increase the memory counter in a diffetet gorutinie, save to disk and purge LRU
+		go func(){
+			//Increments the memory counter (Key + Value in LRU + len of col name, + Key in MAP)
+			memBytes += int64(len(b))
 
-		//Save the Json to disk
-		saveJsonToDisk(createDir, col, id, valor)
+			if enablePrint {fmt.Println("Inc Bytes: ",memBytes)}
 
-		//Purge de LRU
-		purgeLRU()
-	}()
+			//Save the Json to disk, if it is not already on disk
+			if saveToDisk==true {
+				saveJsonToDisk(createDir, col, id, valor)
+			}
+
+			//Purge de LRU
+			purgeLRU()
+		}()
+	}
 
 	return nil
 }
@@ -512,18 +540,18 @@ func saveJsonToDisk(createDir bool, col string, id string, valor string) {
 	}
 }
 
-func deleteJsonFromDisk(col string, clave string){
-	os.Remove("data/"+col+"/"+clave+".json")
+func deleteJsonFromDisk(col string, clave string) (error) {
+	return os.Remove("data/"+col+"/"+clave+".json")
 }
 
-func readJsonFromDisK(col string, clave string) []byte {
+func readJsonFromDisK(col string, clave string) ([]byte, error) {
 	fmt.Println("Read from disk: ", col," - ",clave)
 	content, err := ioutil.ReadFile("data/"+col+"/"+clave+".json")
 	if err!=nil {
 		fmt.Println(err)
 	}
 
-	return content
+	return content,err
 }
 
 /*
@@ -536,11 +564,24 @@ func getElement(col string, id string) ([]byte, error) {
 	//Get the element from the map
 	elemento := cc.Mapa[id]
 
-	//checks if the element exists in the cache, TODO: estaria bueno que lo busque en el disco y si no esta cachee un not-found
+	//checks if the element exists in the cache
 	if elemento==nil {
 		fmt.Println("Elemento not in memory, reading disk, ID: ",id)
-		//TODO: hacer que lea del disco y cargue el contenido o cachee el not-found
-		return nil, nil
+
+		//read the disk
+		content, er:=readJsonFromDisK(col, id)
+
+		//if file doesnt exists cache the not found and return nil
+		if er!= nil {
+			//create the element and set it as deleted
+			createElement(col, id, "", false, true) // set as deleted and do not save to disk
+		} else {
+			//Create the element from the disk content
+			createElement(col, id, string(content), false,false) // set to not save to disk
+		}
+
+		//call get element again (recursively)
+		return getElement(col,id)
 	}
 
 	//If the Not-found is cached, return false directely
@@ -556,8 +597,11 @@ func getElement(col string, id string) ([]byte, error) {
 	if elemento.Value.(node).Swap==true {
 
 		//Read the swapped json from disk
-		b:=readJsonFromDisK(col, id)
+		b, _:=readJsonFromDisK(col, id)
 
+		//TODO: read if there was an error and do something...
+
+		//convert the content into json
 		var f interface{}
 		err := json.Unmarshal(b, &f)
 
@@ -691,45 +735,6 @@ func moveFront(elemento *list.Element){
 	if enablePrint {fmt.Println("LRU Updated")}
 }
 
-
-/*
- * Delete the key in the cache
- */
-func deleteElementOld(col string, clave string) bool {
-
-	cc := collections[col]
-
-	//Get the element from the map
-	elemento := cc.Mapa[clave]
-
-	//checks if the element exists in the cache
-	if elemento!=nil {
-
-		//Delete the key in the map
-		cc.Canal <- 1
-		delete(cc.Mapa, clave)
-		<- cc.Canal
-
-		//Remove the element from the list in a separated gorutine
-		go func(){
-
-			deleteElementFromLRU(elemento)
-
-			deleteJsonFromDisk(col, clave)
-
-			//Print message
-			if enablePrint {fmt.Println("Delete successfull, ID: ",clave)}
-		}()
-
-	} else {
-		//TODO: Si no existe buscarlo en el disco para borrarlo, si no esta guardar un not-found
-		return false
-	}
-
-	return true
-
-}
-
 /*
  * Delete the element from the disk, and if its enable, cache the not-found
  */
@@ -786,12 +791,19 @@ func deleteElement(col string, clave string) bool {
 		//TODO: terminar esto
 
 		//Create a new element with the key in the cache, to save a not-found if it is enable
+		createElement(col, clave, "", false, true)
 
 		//Check is the element exist in the disk
+		err := deleteJsonFromDisk(col,clave)
 
 		//if exists, direcly remove it and return true
 		//if it not exist return false (because it was not found)
-		return false
+		if err==nil {
+			return true
+		} else {
+			return false
+		}
+
         }
 
         return true
@@ -801,7 +813,7 @@ func deleteElement(col string, clave string) bool {
 /*
  * Delete the element from de LRU and decrement the counters
  */
-func deleteElementFromLRU(elemento *list.Element){
+func deleteElementFromLRU(elemento *list.Element) {
 
 	//Decrement the byte counter, decrease the Key * 2 + Value
 	var n node = elemento.Value.(node)
