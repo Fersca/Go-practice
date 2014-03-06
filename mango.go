@@ -35,6 +35,7 @@ const maxMemBytes int64 = 1048576
 var memBytes int64 = 0
 var sequence int = 0
 const pointerLen int = 4+8 //Bytes of pointer in 32bits machines plus int64 for the key of element in hashmemBytes
+const cacheNotFound bool = true
 
 //Channes to sync the List, map
 var lisChan chan int
@@ -49,6 +50,7 @@ const enablePrint bool = false
 type node struct {
 	V map[string]interface{}
 	Swap bool
+	Deleted bool
 	col string
 	key string
 }
@@ -164,7 +166,6 @@ func handleTCPConnection(conn net.Conn){
 				fmt.Println("Collection: ",comandos[1], " - ",len(comandos[1]))
 				fmt.Println("Id: ",comandos[2]," - ",len(comandos[2]))
 
-				//b,err := getElement(comandos[1],atoi(comandos[2]))
 				b,err := getElement(comandos[1],comandos[2])
 
 				if b!=nil {
@@ -444,7 +445,7 @@ func createElement(col string, id string, valor string) (error) {
 	m := f.(map[string]interface{})
 
 	//Add the value to the list and get a pointer to the node	
-	n := node{m,false,col,id}
+	n := node{m,false,false,col,id}
 
 	//create the list element
 	var elemento *list.Element
@@ -521,7 +522,7 @@ func readJsonFromDisK(col string, clave string) []byte {
 	if err!=nil {
 		fmt.Println(err)
 	}
-	
+
 	return content
 }
 
@@ -535,8 +536,16 @@ func getElement(col string, id string) ([]byte, error) {
 	//Get the element from the map
 	elemento := cc.Mapa[id]
 
-	//checks if the element exists in the cache
+	//checks if the element exists in the cache, TODO: estaria bueno que lo busque en el disco y si no esta cachee un not-found
 	if elemento==nil {
+		fmt.Println("Elemento not in memory, reading disk, ID: ",id)
+		//TODO: hacer que lea del disco y cargue el contenido o cachee el not-found
+		return nil, nil
+	}
+
+	//If the Not-found is cached, return false directely
+	if elemento.Value.(node).Deleted==true {
+		fmt.Println("Not-Found cached detected on getting, ID: ",id)
 		return nil, nil
 	}
 
@@ -686,7 +695,7 @@ func moveFront(elemento *list.Element){
 /*
  * Delete the key in the cache
  */
-func deleteElement(col string, clave string) bool {
+func deleteElementOld(col string, clave string) bool {
 
 	cc := collections[col]
 
@@ -713,10 +722,79 @@ func deleteElement(col string, clave string) bool {
 		}()
 
 	} else {
+		//TODO: Si no existe buscarlo en el disco para borrarlo, si no esta guardar un not-found
 		return false
 	}
 
 	return true
+
+}
+
+/*
+ * Delete the element from the disk, and if its enable, cache the not-found
+ */
+func deleteElement(col string, clave string) bool {
+
+	//Get the element collection
+        cc := collections[col]
+
+        //Get the element from the map
+        elemento := cc.Mapa[clave]
+
+        //checks if the element exists in the cache
+        if elemento!=nil {
+
+		//if it is marked as deleted, return a not-found directly without checking the disk
+		if elemento.Value.(node).Deleted==true {
+			fmt.Println("Not-Found cached detected on deleting, ID: ",clave)
+			return false
+		}
+
+		//the node was not previously deleted....so exists in the disk
+
+		//if not-found cache is enabled, mark the element as deleted
+		if cacheNotFound==true {
+
+			//created a new node and asign it to the element
+			var deletedNode node
+			deletedNode.V = nil
+			deletedNode.Deleted = true
+			elemento.Value=deletedNode
+
+			fmt.Println("Caching Not-found for, ID: ",clave)
+
+		} else {
+			//if it is not enabled, delete the element from the memory
+			cc.Canal <- 1
+			delete(cc.Mapa, clave)
+			<- cc.Canal
+		}
+
+                //In both cases, remove the element from the list and from disk in a separated gorutine
+                go func(){
+
+                        deleteElementFromLRU(elemento)
+
+                        deleteJsonFromDisk(col, clave)
+
+                        //Print message
+                        if enablePrint {fmt.Println("Delete successfull, ID: ",clave)}
+                }()
+
+        } else {
+		fmt.Println("Delete element not in memory, ID: ",clave)
+		//TODO: terminar esto
+
+		//Create a new element with the key in the cache, to save a not-found if it is enable
+
+		//Check is the element exist in the disk
+
+		//if exists, direcly remove it and return true
+		//if it not exist return false (because it was not found)
+		return false
+        }
+
+        return true
 
 }
 
