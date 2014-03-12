@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"io/ioutil"
 	"os"
+	"errors"
 )
 
 //Create the list to support the LRU List
@@ -215,17 +216,16 @@ func handleTCPConnection(conn net.Conn){
 				comandos := strings.Split(commandStr[:cant-2]," ")
 
 				fmt.Println("Collection: ",comandos[1], " - ",len(comandos[1]))	
-				fmt.Println("Key: ",comandos[2], " - ",len(comandos[2]))
-				fmt.Println("JSON: ",comandos[3]," - ",len(comandos[3]))
+				fmt.Println("JSON: ",comandos[2]," - ",len(comandos[2]))
 
-				err := createElement(comandos[1],comandos[2],comandos[3],true,false)
+				id,err := createElement(comandos[1],"",comandos[3],true,false)
 
 				var result string
 				if err!=nil{
 					fmt.Println(err)
 				} else {
 					//result = "Element Created: "+strconv.Itoa(id)+"\n"
-					result = "Element Created: "+comandos[2]+"\n"
+					result = "Element Created: "+id+"\n"
 					conn.Write([]byte(result))
 				}
 
@@ -313,7 +313,6 @@ func showHelp() string {
 	help += "POST/PUT --> localhost:8080/{collection}/{key}    body={json}\n"
 	help += "DELETE   --> localhost:8080/{collection}/{key} \n"  
 	help += "GET      <-- localhost:8080/{collection}/{key} \n"
-	help += "GET      <-- localhost:8080/{collection}/elements \n"
 	help += "GET      <-- localhost:8080/search?col={collection}&field={field}&value={value}\n"
 	help += "\n"
 	return help
@@ -354,19 +353,6 @@ func processRequest(w http.ResponseWriter, req *http.Request){
 				return
 			}
 
-			//show the elements in the collection
-			if comandos[1]=="elements" {
-				b, err := getElements(comandos[0])
-				if err!=nil {
-					fmt.Println(b)
-					w.WriteHeader(500)
-					return
-				}
-				w.Write([]byte(b))
-				return
-			}
-
-
 			//Get the vale from the cache
 			//element, err := getElement(comandos[0],atoi(comandos[1]))
 			element, err := getElement(comandos[0],comandos[1])
@@ -379,6 +365,7 @@ func processRequest(w http.ResponseWriter, req *http.Request){
 					//Return a not-found				
 					w.WriteHeader(404)
 				} else {
+					headerMap.Add("Error","Invalid JSON Disk")
 					w.WriteHeader(500)
 				}
 			}
@@ -393,14 +380,20 @@ func processRequest(w http.ResponseWriter, req *http.Request){
 			req.Body.Read(p)
 
 			//Save the element in the cache			
-			err := createElement(comandos[0],comandos[1],string(p),true,false)
+			id, err := createElement(comandos[0],"",string(p),true,false)
 
 			if err!=nil{
-				fmt.Println(err)
-				w.WriteHeader(500)
+				fmt.Println("Error code:",err.Error())
+				if err.Error()=="invalid_id"{
+					headerMap.Add("Error","Invalid ID field")
+					w.WriteHeader(400)
+				} else {  
+					fmt.Println(err)
+					w.WriteHeader(500)
+				}
 			} else {
 				//headerMap.Add("element_id",strconv.Itoa(id))
-				headerMap.Add("element_id",comandos[1])
+				headerMap.Add("location",comandos[0]+"/"+id)
 				//Response the 201 - created to the client
 				w.WriteHeader(201)
 			}
@@ -430,7 +423,7 @@ func processRequest(w http.ResponseWriter, req *http.Request){
 /*
  * Create the element in the collection
  */
-func createElement(col string, id string, valor string, saveToDisk bool, deleted bool) (error) {
+func createElement(col string, id string, valor string, saveToDisk bool, deleted bool) (string,error) {
 
 	//create the list element
         var elemento *list.Element
@@ -443,13 +436,25 @@ func createElement(col string, id string, valor string, saveToDisk bool, deleted
 		err := json.Unmarshal(b, &f)
 
 		if err != nil {
-			return err
+			return "",err
 		}
 
 		//transform it to a map
 		m := f.(map[string]interface{})
+		fmt.Println(m)
 
-		//Add the value to the list and get a pointer to the node	
+		//Checks the data tye of the ID field
+		switch m["id"].(type) {
+		case float64:
+			id = strconv.FormatFloat(m["id"].(float64),'f',-1,64)
+		case string:
+			id = m["id"].(string)
+		default:
+			return "",errors.New("invalid_id")
+		}
+
+		//Add the value to the list and get the pointer to the node
+		fmt.Println("imprime el id porque queda mal: ",id)
 		n := node{m,false,false,col,id}
 
 		lisChan <- 1
@@ -460,7 +465,7 @@ func createElement(col string, id string, valor string, saveToDisk bool, deleted
 
 		//if not found cache is disabled
 		if cacheNotFound==false {
-			return nil
+			return id,nil
 		}
 
 		fmt.Println("Creating node as deleted: ",col,id)
@@ -525,7 +530,7 @@ func createElement(col string, id string, valor string, saveToDisk bool, deleted
 		}()
 	}
 
-	return nil
+	return id,nil
 }
 
 func saveJsonToDisk(createDir bool, col string, id string, valor string) {
@@ -577,7 +582,10 @@ func getElement(col string, id string) ([]byte, error) {
 			createElement(col, id, "", false, true) // set as deleted and do not save to disk
 		} else {
 			//Create the element from the disk content
-			createElement(col, id, string(content), false,false) // set to not save to disk
+			_,err := createElement(col, id, string(content), false,false) // set to not save to disk
+			if err!=nil{
+				return nil, errors.New("Invalid Disk JSON")
+			}
 		}
 
 		//call get element again (recursively)
