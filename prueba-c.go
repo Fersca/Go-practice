@@ -5,12 +5,31 @@ package main
 #include <stdio.h>
 
 typedef struct {
-    int a;
-    int b;
-} Foo;
+    int edad;
+    int televisores;
+} Persona;
 
-void pass_struct(Foo *in) {
-    fprintf(stderr, "[%d, %d]\n", in->a, in->b);
+typedef struct {
+    char* nombre;
+    int patas;
+} Animal;
+
+typedef struct ciuda {
+    char* nombre;
+} Ciudad;
+
+void pass_struct(Persona *per) {
+    fprintf(stderr, "[%d, %d]\n", per->edad, per->televisores);
+};
+
+struct ciuda pass_struct_animal(Animal *ani) {
+    fprintf(stderr, "Animal: %s, patas: %d\n", ani->nombre, ani->patas);    
+    struct ciuda ciu;
+    printf("Nombre de la ciudad: ");
+    char* aver = (char*)malloc(50);
+    scanf("%s", aver);    
+    ciu.nombre = aver;
+    return ciu;
 }
 
 */
@@ -20,17 +39,36 @@ import (
 	"fmt"
     "reflect"
     "unsafe"
+	"net/http"
+	"strconv"        
 )
+
+func webserver() {    
+	http.Handle("/", http.HandlerFunc(processRequest))
+	http.ListenAndServe("0.0.0.0:8080", nil)
+}
+
+func processRequest(w http.ResponseWriter, req *http.Request) {    
+    w.Write([]byte("Random desde webserver: "+strconv.Itoa(Random())))
+}
 
 func main() {
 
-	fmt.Println("Random, number from C: ", Random())    
-    fmt.Println("Random con Seed, number from C: ", Seed(23))
-    fmt.Println("Pass struct: ")
+    go webserver()
     
-    foo := Gofoo{25, 26}
-    C.pass_struct((*C.Foo)(unsafe.Pointer(&foo)))
-       
+	fmt.Println("Número random: ", Random())    
+    fmt.Println("Número random (semilla): ", Seed(23))
+    
+    persona := GoPersona{25, 2}
+    animal := GoAnimal{}
+    animal.nombre = C.CString("Gato")
+    animal.patas = 4
+    
+    C.pass_struct((*C.Persona)(unsafe.Pointer(&persona)))
+    
+    var ciudad GoCiudad = GoCiudad(C.pass_struct_animal((*C.Animal)(unsafe.Pointer(&animal))))
+    fmt.Println("Ciudad: ", C.GoString(ciudad.nombre))
+    C.free(unsafe.Pointer(ciudad.nombre))
 }
 
 /*
@@ -39,17 +77,20 @@ type Gofoo struct {
     B int32
 }
 */
+
 //De esta forma se tiene referenciada a la misma estructura y evitamos errores
-type Gofoo _Ctype_Foo
+type GoPersona _Ctype_Persona
+type GoAnimal _Ctype_Animal
+type GoCiudad _Ctype_struct_ciuda
 
 func Random() int {
 	return int(C.random())
 }
 
-func Seed(i int) int {
-    fmt.Println("Hola ", i)
-    value := C.srandom(C.uint(i))
-    tipe := reflect.TypeOf(value)
-    fmt.Println("value type: ", tipe)
+func Seed(semilla int) int {
+    fmt.Println("Semilla ", semilla)
+    valor := C.srandom(C.uint(semilla))
+    tipo := reflect.TypeOf(valor)
+    fmt.Println("Tipo: ", tipo)
     return int(C.random())
 }
