@@ -18,8 +18,8 @@ typedef struct ciuda {
     char* nombre;
 } Ciudad;
 
-void pass_struct(Persona *per) {
-    fprintf(stderr, "[%d, %d]\n", per->edad, per->televisores);
+void imprimePersona(Persona *per) {
+    fprintf(stderr, "Edad: %d, Teles: %d\n", per->edad, per->televisores);
 };
 
 struct ciuda pass_struct_animal(Animal *ani) {
@@ -34,14 +34,10 @@ struct ciuda pass_struct_animal(Animal *ani) {
 
 */
 import "C"
-
-import (
-	"fmt"
-	"net/http"
-	"reflect"
-	"strconv"
-	"unsafe"
-)
+import "fmt"
+import "unsafe"
+import "net/http"
+import "strconv"
 
 func webserver() {
 	http.Handle("/", http.HandlerFunc(processRequest))
@@ -56,41 +52,38 @@ func main() {
 
 	go webserver()
 
-	fmt.Println("Número random: ", Random())
-	fmt.Println("Número random (semilla): ", Seed(23))
-
-	persona := GoPersona{25, 2}
+	fmt.Println("Hola Fer")
+	fmt.Println("Crea Semilla")
+	Seed(23)
+	fmt.Println("Random: ", Random())
+	
+	persona := GoPersona{25, 2}	
+	C.imprimePersona((*C.Persona)(unsafe.Pointer(&persona)))
+	
 	animal := GoAnimal{}
 	animal.nombre = C.CString("Gato")
 	animal.patas = 4
 
-	C.pass_struct((*C.Persona)(unsafe.Pointer(&persona)))
-
 	var ciudad GoCiudad = GoCiudad(C.pass_struct_animal((*C.Animal)(unsafe.Pointer(&animal))))
 	fmt.Println("Ciudad: ", C.GoString(ciudad.nombre))
 	C.free(unsafe.Pointer(ciudad.nombre))
+
 }
 
-/*
-type Gofoo struct {
-    A int32
-    B int32
-}
-*/
-
-//De esta forma se tiene referenciada a la misma estructura y evitamos errores
+//GoPersona Tipo de Dato que linkea a la estructura de C
 type GoPersona _Ctype_Persona
+//GoAnimal Tipo de Dato que linkea a la estructura de C
 type GoAnimal _Ctype_Animal
+//GoCiudad Tipo de Dato que linkea a la estructura de C
 type GoCiudad _Ctype_struct_ciuda
 
-func Random() int {
-	return int(C.random())
+
+//Seed crea una semilla
+func Seed(semilla int) {
+	C.srandom(C.uint(semilla))
 }
 
-func Seed(semilla int) int {
-	fmt.Println("Semilla ", semilla)
-	valor := C.srandom(C.uint(semilla))
-	tipo := reflect.TypeOf(valor)
-	fmt.Println("Tipo: ", tipo)
+//Random Devuelve un número aleatorio desde C
+func Random() int {
 	return int(C.random())
 }
