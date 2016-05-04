@@ -2,28 +2,29 @@ package main
 
 import (
 	"fmt"
+	"sync"
 	"time"
-    "sync"
 )
 
 func main() {
 
-    //Unbuffered channel
-	//ejemplo1()
-    
-    //Buffered channel
-	//ejemplo2()
-    
-    //Cancel event
-	//ejemplo3()
-    
-    //Wait Group
-    ejemplo4()
+	//Unbuffered channel
+	ejemplo1()
+
+	//Buffered channel
+	ejemplo2()
+
+	//Cancel event
+	ejemplo3()
+
+	//Wait Group
+	ejemplo4()
 
 }
 
 func ejemplo1() {
 	//sync channel
+
 	canal := make(chan int)
 
 	contador := 0
@@ -83,11 +84,11 @@ func ejemplo3() {
 		go atenderCliente2(canalCliente, canalCancelar, clientes)
 	}
 
-	go cancelar(canalCancelar,canalCliente)
+	go cancelar(canalCancelar, canalCliente)
 
-    for range canalCliente{
-        time.Sleep(1000 * time.Millisecond)        
-    }
+	for range canalCliente {
+		time.Sleep(1000 * time.Millisecond)
+	}
 
 	time.Sleep(2 * time.Second)
 
@@ -106,34 +107,34 @@ func atenderCliente2(canalCliente chan<- int, canalCancelar <-chan int, cliente 
 	}
 }
 
-func cancelar(canalCancelar,canalCliente chan int) {
+func cancelar(canalCancelar, canalCliente chan int) {
 
 	time.Sleep(2 * time.Second)
-    fmt.Println("Cancelando....")
+	fmt.Println("Cancelando....")
 	canalCancelar <- 1
 	time.Sleep(1 * time.Second)
-    fmt.Println("Cancelando TODOS!!")        
-    close(canalCancelar)
-    time.Sleep(1 * time.Second)
-    close(canalCliente)
+	fmt.Println("Cancelando TODOS!!")
+	close(canalCancelar)
+	time.Sleep(1 * time.Second)
+	close(canalCliente)
 }
 
-func ejemplo4(){
-    
-    var done sync.WaitGroup
-    
-    for i:=0;i<10;i++{                
-        done.Add(1)        
-        go func(){
-            time.Sleep(1*time.Second)
-            fmt.Println("Hola ...")
-            done.Done()            
-        }()        
-    }
-    
-    done.Wait()
-    fmt.Println("Terminaron...")    
-    time.Sleep(2 * time.Second)
-    fmt.Println("Fin...")
-    
+func ejemplo4() {
+
+	var done sync.WaitGroup
+
+	for i := 0; i < 10; i++ {
+		done.Add(1)
+		go func() {
+			time.Sleep(1 * time.Second)
+			fmt.Println("Hola ...")
+			done.Done()
+		}()
+	}
+
+	done.Wait()
+	fmt.Println("Terminaron...")
+	time.Sleep(2 * time.Second)
+	fmt.Println("Fin...")
+
 }
