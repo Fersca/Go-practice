@@ -13,7 +13,7 @@ func main() {
 	canalHola := make(chan int, 5)
 	canalCancel := make(chan int, 5)
 
-	go mandarHoela(canalCancel, canalHola, canal)
+	go mandarHola(canalCancel, canalHola, canal)
 
 	for i := 0; i < 15; i++ {
 		go procesar(&contador, canal, canalHola, canalCancel)
