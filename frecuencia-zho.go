@@ -19,10 +19,17 @@ func main() {
     for scanner.Scan() {
         linea := scanner.Text()
         pos := contador
-        caracter:= linea[46]
+        caracter := ""
+        for i, c := range linea {
+            s := fmt.Sprintf("%c", c)
+            caracter = s
+            if i==2 {
+                break
+            }
+        }        
         fmt.Println(caracter, " - ", pos)
         contador++
-        if contador==10 {
+        if contador==100 {
             return
         }
     }
