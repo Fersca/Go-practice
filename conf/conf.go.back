@@ -1,0 +1,108 @@
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func main() {
+
+	gorutinas := 1000000
+
+	//crea un timer
+	timer := time.NewTimer(5 * time.Second)
+
+	//crea un canal
+	finalizados := make(chan int)
+
+	//Crea 3 gorutinas y les pasa el canal para que manden mensajes
+	for i := 0; i < gorutinas; i++ {
+		go facto(finalizados, i)
+	}
+
+	cant := 0
+
+	for {
+		select {
+		case <-finalizados:
+			cant++
+			if cant == gorutinas {
+				fmt.Println("Terminan todos")
+				return
+			}
+		case <-timer.C:
+			fmt.Println("Time out!!!!")
+			close(finalizados)
+			//return
+		}
+
+	}
+
+}
+
+func facto(finalizados chan int, numero int) {
+
+	result := numero
+	for i := numero - 1; i > 1; i-- {
+		result = result * i
+		time.Sleep(2 * time.Microsecond)
+	}
+
+	//fmt.Println("facto(", numero, ") = ", result)
+
+	finalizados <- numero
+}
+
+/*
+
+func handler(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(w, "Hola Amigo %s", r.URL.Path[1:])
+}
+
+func main() {
+
+	mensajes := make(chan string)
+
+	go func() {
+		mensajes <- "Hola"
+	}()
+
+	m1 := <-mensajes
+
+	go generaMensaje(mensajes)
+
+	<-mensajes
+
+	go cuenta(m1, 500)
+
+	go cuenta("--", 200)
+
+	go func() {
+		for i := 0; i < 10; i++ {
+			fmt.Println("Número: ", i)
+		}
+	}()
+
+	runWs()
+}
+
+func generaMensaje(done chan string) {
+	fmt.Println("Hace algo....")
+	time.Sleep(100 * time.Millisecond)
+	done <- "listo"
+}
+
+func cuenta(separador string, tiempo int) {
+	for i := 0; i < 10; i++ {
+		fmt.Println(separador, i)
+		time.Sleep(time.Duration(tiempo) * time.Millisecond)
+	}
+	fmt.Println("Fin.")
+}
+
+func runWs() {
+	fmt.Println("Corriendo Webserver...")
+	http.HandleFunc("/", handler)
+	http.ListenAndServe(":8080", nil)
+}
+*/

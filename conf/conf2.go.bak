@@ -1,0 +1,53 @@
+package main
+
+import (
+	"fmt"
+	"os"
+	"strconv"
+	"time"
+)
+
+func main() {
+
+	numeros, _ := strconv.Atoi(os.Args[1])
+
+	fmt.Println("Inicia")
+
+	finalizados := make(chan int)
+	timer := time.NewTimer(3 * time.Second)
+
+	for i := 1; i <= numeros; i++ {
+		go facto(finalizados, i)
+	}
+
+	cant := 0
+	for {
+		select {
+		case value := <-finalizados:
+			cant++
+			if cant == numeros {
+				fmt.Println("Listo, value: ", value)
+				return
+			}
+		case <-timer.C:
+			fmt.Println("Time OUT!!!")
+			close(finalizados)
+			//return
+		}
+	}
+
+}
+
+func facto(finalizados chan<- int, numero int) {
+
+	resultado := numero
+
+	for i := numero - 1; i > 1; i-- {
+		resultado = resultado * i
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	fmt.Printf("Facto(%v) = %v \n", numero, resultado)
+
+	finalizados <- numero
+}
